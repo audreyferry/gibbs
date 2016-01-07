@@ -4,7 +4,7 @@ import sys
 import os
 import random
 import math
-g_encoding =  "asci"  # "utf8"
+g_encoding = "asci"  # "utf8"
 shift_counter = []
 
 morphemes = {}
@@ -179,7 +179,7 @@ class class_word:
 			self.LogFacList.append(LogFacPiece)	
 			self.TotalLogFacPieces += LogFacPiece
 	
-			PlogPiece = 10 * GetPlog(morph, morphemes, totalmorphemecount)
+			PlogPiece = 10 * GetPlog(morph, morphemes, totalmorphemecount)  # Why 10?  Try it without.  audrey  2015_12_02  
 			self.TotalPlogs += PlogPiece
 			self.PlogList.append(PlogPiece)
 		
@@ -208,15 +208,27 @@ class class_word:
 	# added July 7 2013 jag
 	def TestUnbrokenWord(self,morphemes,totalmorphemecount):
 		# Check only unanalyzed words:  consider all cuts and select the best one, if it is an improvement.
+		# THIS WAS NOT WORKING. NEEDED LIST OF BREAKS TO CONTAIN 0 AND len(self.word).
+		#print "Are there considered to be breaks? len(self.breaks) = ", len(self.breaks)   #audrey  2015_12_02
+
 		if len(self.breaks) > 0:
 			return
-		bestscore = 0
-		#currentscore = 0
+
 		bestlocation = 0
 		this_word = self.word
+		
+		#ADDED    audrey    2015_12_02
+		print "\npoint = 0 (i.e., unbroken word)"
+		test_parse = class_word(this_word)
+		test_parse.breaks = [0, len(this_word)]
+		test_parse.EvaluateWordParse(morphemes,totalmorphemecount)
+		bestscore = test_parse.TotalCost
+		test_parse.displaytoscreen()
+		
 		for point in range(1,len(this_word)):
-			print "point =", point
-			test_parse = class_word(this_word)		
+			print "\npoint =", point
+			test_parse = class_word(this_word)	
+			test_parse.breaks = [0, len(this_word)]     # ADDED  2015_12_02    audrey
 			
 			test_parse.addcut(point)
 			test_parse.EvaluateWordParse(morphemes,totalmorphemecount)
@@ -226,8 +238,10 @@ class class_word:
 				bestscore = test_parse.TotalCost 
 				bestlocation = point
 			test_parse.displaytoscreen()
+			
 		if bestscore > 0:
-			self.displaytoscreen()
+			print "\nBest score = ", bestscore, "at point = ", bestlocation, "\n"    # FORMAT bestscore AS %8.1f
+			
 ## ---------------------------------------------------------------------------------------##
 ##		End of class class_word:
 ## ---------------------------------------------------------------------------------------##
@@ -466,9 +480,9 @@ def ShiftBreak (word, thiswordbreaks, shiftamount, outfile, totalmorphemecount):
 
 # organize files like this or change the paths here for input
 language = "english"
-infolder = '../../data/' + language + '/dx1_files/'	
+infolder = '../data/' + language + '/dx1/'	
 size = 50 #french 153 10 english 14 46
-infilename = infolder + language + ".dx1"  # needs dx1 file
+infilename = infolder + "english-brown.dx1"  # needs dx1 file
 
 # if an argument is specified, uses that instead of the above path for input
 if len(sys.argv) > 1:
@@ -484,7 +498,7 @@ else:
 print "Data file: ", infilename
 
 # organize files like this or change the paths here for output
-outfolder = '../../data/'+ language + '/gibbs_wordbreaking/'
+outfolder = '../data/'+ language + '/gibbs_wordbreaking/'
 outfilename = outfolder +  "gibbs_pieces.txt"
 outfilename1 = outfolder +  "word_list.txt"
 if g_encoding == "utf8":
@@ -529,6 +543,7 @@ wordlist.sort()
 #	2. Random splitting of words
 #---------------------------------------------------------#
  
+random.seed(a=5)
 breakprob = 0.1  # where does this probability come from? is it a statistic about languages in general/English?
 #breaks = {}   # a dictionary of words mapped to a list of indices where the breaks are
 totalmorphemecount = 0  # number of morphemes, counting duplicates
@@ -634,7 +649,7 @@ for loopno in range (NumberOfIterations):
 				 
 		 
  
-	if split_count + merger_count + shift_count > 1:  
+	if split_count + merger_count + shift_count > 1:    # Note that these counts are not maintained    audrey  2015_12_03
 		# prints to both output file and stdout
 		print >>outfile, loopno , "Splits during this loop:", split_count, "Merges: ", merger_count,  "Shifts: ", shift_count
 		print loopno, "Splits during this loop:", split_count, "Merges: ", merger_count, "Shifts: ", shift_count
@@ -648,7 +663,8 @@ for loopno in range (NumberOfIterations):
 	if loopno == 0  or  loopno == 10 or loopno == 20 or  loopno == 100 or loopno == NumberOfIterations -1:
  
 		# first: print ALL words, with their analysis.
- 		print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
+ 		#print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
+ 		print >>outfile1, "----------------------------------------\nLoop number:", loopno, "\n"
 		PrintAllWords(WordObjectList,outfile1,loopno)
 		threshold = 0
 		print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
