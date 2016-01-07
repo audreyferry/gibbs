@@ -480,9 +480,9 @@ def ShiftBreak (word, thiswordbreaks, shiftamount, outfile, totalmorphemecount):
 
 # organize files like this or change the paths here for input
 language = "english"
-infolder = '../data/' + language + '/dx1/'	
+infolder = '../data/' + language + '/'
 size = 50 #french 153 10 english 14 46
-infilename = infolder + "english-brown.dx1"  # needs dx1 file
+infilename = infolder + "english-brown-unbroken.txt"  # unbroken corpus, instead of .dx1 file
 
 # if an argument is specified, uses that instead of the above path for input
 if len(sys.argv) > 1:
@@ -511,23 +511,28 @@ else:
  
 #------------------------------------#
 
-filelines= infile.readlines()
-WordCounts={}
+# THIS PART IS FOR READING FROM dx1 FILE
+#filelines= infile.readlines()
+#WordCounts={}
 
 # add counts for all words in dictionary
-for line in filelines:
-	pieces = line.split(' ')
-	word=pieces[0] # the first column in the dx1 file is the actual word 
-	word = ''.join([c.lower() for c in word if c not in "()1234567890"])
-	if word in WordCounts:
-		WordCounts[word] += 1
-	else:
-		WordCounts[word]= 1
+#for line in filelines:
+#	pieces = line.split(' ')
+#	word=pieces[0] # the first column in the dx1 file is the actual word 
+#	word = ''.join([c.lower() for c in word if c not in "()1234567890"])
+#	if word in WordCounts:
+#		WordCounts[word] += 1
+#	else:
+#		WordCounts[word]= 1
 
-print "We read", len(WordCounts), "words." 
+#print "We read", len(WordCounts), "words." 
 # saves words also in list format, then sorts alphabetically (in case they're not already?)
-wordlist = WordCounts.keys()
-wordlist.sort()
+#wordlist = WordCounts.keys()
+#wordlist.sort()
+
+# THIS PART IS FOR READING CORPUS
+wordlist = infile.readlines()    #  This is a list  audrey   2015_12_04
+print "length of wordlist: ", len(wordlist)
 
 #---------------------------------------------------------#
 #	End of file input, output
@@ -573,10 +578,10 @@ for word in wordlist:
  	WordObjectList.append(this_word)
 		
 pieces = sorted (morphemes, key = morphemes.get, reverse = True  ) # sort by value
-for piece in pieces:
-	if morphemes[piece] < 5:    # only add to dictionary if morpheme occurred 5+ times
-		continue	
-	print >>outfile, piece, morphemes[piece]
+#for piece in pieces:
+#	if morphemes[piece] < 5:    # only add to dictionary if morpheme occurred 5+ times
+#		continue	
+#	print >>outfile, piece, morphemes[piece]    # MAY DECIDE TO PRINT THIS   audrey  2015_12_04
 
 print "End of initial randomization." 
 
@@ -588,13 +593,13 @@ print "End of initial randomization."
 #----------------------------------------------------------#
 #		3. Main loop
 #----------------#----------------------------------------------------------#------------------------------------------#
-NumberOfIterations =160			# 200 seems to be a good number
-BestMorphemes = {}          	# a dictionary of morphemes mapped to a list of (loop number, occurence count) pairs that are the best at that loop
+NumberOfIterations = 600  # 20000  # 160			# 200 seems to be a good number
+#BestMorphemes = {}          	# a dictionary of morphemes mapped to a list of (loop number, occurence count) pairs that are the best at that loop
 BitsPerLetter = 5
-logflag = False
+#logflag = False
 LoopNumberAtWhichWeStartTracking = 20
 for loopno in range (NumberOfIterations):
-	print >>outfile, "loop number", loopno	
+	#print >>outfile, "loop number", loopno	
 	print loopno 
 	split_count = 0
 	merger_count = 0
@@ -623,11 +628,11 @@ for loopno in range (NumberOfIterations):
 			if that_word.TotalCost < this_word.TotalCost:
 				# we want to replace this_word by that_word
 				WordObjectList[wordno] = that_word
-				if loopno >= LoopNumberAtWhichWeStartTracking:
-					print >>outfile, "Splitting"
-					print "Splitting", wordstring		
-					this_word.display(outfile)
-					that_word.display(outfile)
+				#if loopno >= LoopNumberAtWhichWeStartTracking:
+					#print >>outfile, "Splitting"
+					#print "Splitting", wordstring		
+					#this_word.display(outfile)
+					#that_word.display(outfile)
 
 
 		else: #we make an alternative parse in which there is no break at this point
@@ -641,17 +646,17 @@ for loopno in range (NumberOfIterations):
 			if that_word.TotalCost < this_word.TotalCost:
 				# we want to replace this_word by that_word
 				WordObjectList[wordno] = that_word				
-				if loopno >= LoopNumberAtWhichWeStartTracking:					
-					print >>outfile, "Merging"
-					print "Merging", wordstring				
-					this_word.display(outfile)
-					that_word.display(outfile)
+				#if loopno >= LoopNumberAtWhichWeStartTracking:					
+					#print >>outfile, "Merging"
+					#print "Merging", wordstring				
+					#this_word.display(outfile)
+					#that_word.display(outfile)
 				 
 		 
  
 	if split_count + merger_count + shift_count > 1:    # Note that these counts are not maintained    audrey  2015_12_03
 		# prints to both output file and stdout
-		print >>outfile, loopno , "Splits during this loop:", split_count, "Merges: ", merger_count,  "Shifts: ", shift_count
+		#print >>outfile, loopno , "Splits during this loop:", split_count, "Merges: ", merger_count,  "Shifts: ", shift_count
 		print loopno, "Splits during this loop:", split_count, "Merges: ", merger_count, "Shifts: ", shift_count
 	# recalculate morpheme frequencies & number of morphemes
 	morphemes = RecountMorphemes(WordObjectList,morphemes)	 
@@ -660,7 +665,8 @@ for loopno in range (NumberOfIterations):
 	#       output intermediate results 			   #	
 	#----------------------------------------------------------#
 	# prints out the 100 top morphemes initially, after 10 loops, after 100, and after 200
-	if loopno == 0  or  loopno == 10 or loopno == 20 or  loopno == 100 or loopno == NumberOfIterations -1:
+	#if loopno == 0  or  loopno == 10 or loopno == 20 or  loopno == 100 or loopno == NumberOfIterations -1:
+	if loopno == NumberOfIterations -1:
  
 		# first: print ALL words, with their analysis.
  		#print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
@@ -682,16 +688,13 @@ for loopno in range (NumberOfIterations):
 #for morph in BestMorphemes.keys():
 #	print >>outfile, morph, BestMorphemes[morph]
 
+# MOVED UPWARD SO THAT PERSON DOING INTERACTIVE QUERIES CAN VIEW THE INFORMATION DERIVED BY PROGRAM
+outfile1.close()
+outfile.close() 
+
+
 
 CommandList=list()
-
-
-
-
-
-
-
-
 while (True):
   command = raw_input("Enter word:")
   CommandList.append(command)
@@ -708,27 +711,10 @@ while (True):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
  #----------------------------------------------------------#
  #	4. Print results
  #----------------------------------------------------------#
 
-MinimumOccurrenceCount = 3   # if there are less than 3 occurrences of a morpheme, it probably doesn't mean much
-PrintTopMorphemes(WordObjectList, outfile, MinimumOccurrenceCount)
-PrintAllWords(WordObjectList, outfile1, "Final")
-outfile1.close()
-outfile.close() 
-
+#MinimumOccurrenceCount = 3   # if there are less than 3 occurrences of a morpheme, it probably doesn't mean much
+#PrintTopMorphemes(WordObjectList, outfile, MinimumOccurrenceCount)
+#PrintAllWords(WordObjectList, outfile1, "Final")
