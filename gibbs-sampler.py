@@ -9,6 +9,7 @@ shift_counter = []
 
 morphemes = {}
 totalmorphemecount = 0.0
+random.seed(a=5)    #  audrey  2015_12_09
 
 ## ---------------------------------------------------------------------------------------##
 class class_word:
@@ -155,18 +156,26 @@ class class_word:
 #----------------------------------------------------------#
 
 	def EvaluateWordParse(self,morphemes,totalmorphemecount):
-		self.TotalLogFacPieces 	= 0
-		self.TotalPlogs 	= 0
-		self.TotalPhonologicalCost 	= 0
-		self.TotalListCost 	= 0
-		self.TotalCost 		= 0
-		self.LogFacList 	= []
-		self.PlogList 		= []
-		self.PhonologicalCostList = []
-		self.morphs		= []
-		self.totalmorphcostList = []
-		self.MorphemeListLengthCostList	= []
-		self.SubtotalList	= []
+		#self.TotalLogFacPieces 	= 0
+		#self.TotalPlogs 	= 0
+		#self.TotalPhonologicalCost 	= 0
+		#self.TotalListCost 	= 0
+		#self.TotalCost 		= 0
+		#self.LogFacList 	= []
+		#self.PlogList 		= []
+		#self.PhonologicalCostList = []
+		#self.morphs		= []
+		#self.totalmorphcostList = []              # audrey  This doesn't match any member variable in class_word
+		#self.TotalMorphemeListLengthCosts = 0.0   # audrey  This reset was not present in previous code versions
+		#self.MorphemeListLengthCostList	= []
+		#self.SubtotalList	= []
+
+		# RESET ALL MEMBER VARIABLES EXCEPT .word AND .breaks
+		saved_wordstring = self.word
+		saved_breaks = self.breaks		
+		self.__init__(saved_wordstring)
+		self.breaks = saved_breaks
+		
 		splitword = []    # a list of the morphemes in a word
 		start = 0         # what index the morpheme starts at
 		# fills splitword with the current morphemes
@@ -175,7 +184,8 @@ class class_word:
 			start = self.breaks[n]
 		self.WordLogFacLength =  math.log (math.factorial(len(self.morphs)), 2)    # audrey  Why factorial? Isn't order known via breaks?
 		for morph in self.morphs:
-			LogFacPiece =  math.log (math.factorial(len(morph)), 2)    # audrey  In coursenotes, this cost is shared by occurrences of morph
+			#LogFacPiece =  math.log (math.factorial(len(morph)), 2)    # audrey  In coursenotes, this cost is shared by occurrences of morph
+			LogFacPiece =  math.log (math.factorial(len(morph)), 2)/GetCount(morph,morphemes)   # Try it!  audrey  2015_12_11
 			self.LogFacList.append(LogFacPiece)	
 			self.TotalLogFacPieces += LogFacPiece
 	
@@ -548,7 +558,6 @@ print "length of wordlist: ", len(wordlist)
 #	2. Random splitting of words
 #---------------------------------------------------------#
  
-random.seed(a=5)
 breakprob = 0.1  # where does this probability come from? is it a statistic about languages in general/English?
 #breaks = {}   # a dictionary of words mapped to a list of indices where the breaks are
 totalmorphemecount = 0  # number of morphemes, counting duplicates
@@ -606,10 +615,10 @@ for loopno in range (NumberOfIterations):
 	shift_count = 0
 	for wordno in range(len(WordObjectList)):
 		this_word = WordObjectList[wordno]
-		this_word.EvaluateWordParse(morphemes,totalmorphemecount)		
+		this_word.EvaluateWordParse(morphemes,totalmorphemecount)
+		
 		wordstring = this_word.word	 
 		len_wordstring = len(wordstring)
-		original_splitmerge = split_count + merger_count
 		# don't bother with morpheme analysis in a 1-letter word
 		if len_wordstring < 2:	
 			continue
@@ -628,6 +637,7 @@ for loopno in range (NumberOfIterations):
 			if that_word.TotalCost < this_word.TotalCost:
 				# we want to replace this_word by that_word
 				WordObjectList[wordno] = that_word
+				# audrey  2015_12_09  reincluding the following 5 lines (temporary)
 				#if loopno >= LoopNumberAtWhichWeStartTracking:
 					#print >>outfile, "Splitting"
 					#print "Splitting", wordstring		
@@ -646,6 +656,7 @@ for loopno in range (NumberOfIterations):
 			if that_word.TotalCost < this_word.TotalCost:
 				# we want to replace this_word by that_word
 				WordObjectList[wordno] = that_word				
+				# audrey  2015_12_09  reincluding the following 5 lines (temporary)
 				#if loopno >= LoopNumberAtWhichWeStartTracking:					
 					#print >>outfile, "Merging"
 					#print "Merging", wordstring				
