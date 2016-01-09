@@ -9,7 +9,11 @@ shift_counter = []
 
 morphemes = {}
 totalmorphemecount = 0.0
-random.seed(a=5)    #  audrey  2015_12_09
+random.seed(a=5)    # audrey  2015_12_09
+
+BitsPerLetter = 5   # moved upward to here  audrey  2015_12_16
+plogcoeff = 10      # used in both GetSegmentCost() and EvaluateWordCost()
+					# in future EvaluateWordCost() will instead call GetSegmentCost()
 
 ## ---------------------------------------------------------------------------------------##
 class class_word:
@@ -35,20 +39,24 @@ class class_word:
 	def partialcopy(self, other):
 		self.word = other.word		 
 		self.breaks = other.breaks[:]
+
 	def addcut(self, point):
 		AddIntegerToList(point, self.breaks)	 
+
 	def removecut(self, this_point):
 		try:
 			self.breaks.remove(this_point)
 		except ValueError:
 			pass
-	def getpiece(self, pieceno):
+
+	def getpiece(self, pieceno):   # NOTICE THERE IS A DIFFERENT FUNCTION GetPiece()
 		return self.word[self.breaks[pieceno-1]:self.breaks[pieceno]]
+
 	def display(self, outfile):
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
 		FormatString3 = "%8s"
-		 
+
 
 		Total = 0
 
@@ -86,11 +94,9 @@ class class_word:
 		print >>outfile, FormatString1 %("log |word|!:"),
 		print >>outfile,FormatString2 %( logfacword ),
 		print >>outfile
-		print >>outfile, FormatString1 %("List cost:"),
-		print >>outfile,FormatString2 %( self.TotalMorphemeListLengthCosts ),
-		print >>outfile
 		print >>outfile, FormatString1 %("Total:"),
 		print >>outfile,FormatString2 %( self.TotalCost  )
+
 	def displaytoscreen(self):
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
@@ -133,12 +139,8 @@ class class_word:
 		print FormatString1 %("log |word|!:"),
 		print FormatString2 %( logfacword ),
 		print 
-		print FormatString1 %("List cost:"),
-		print FormatString2 %( self.TotalMorphemeListLengthCosts ),
-		print 
 		print FormatString1 %("Total:"),
 		print FormatString2 %( self.TotalCost  )
-
 		 
  
  
@@ -156,19 +158,6 @@ class class_word:
 #----------------------------------------------------------#
 
 	def EvaluateWordParse(self,morphemes,totalmorphemecount):
-		#self.TotalLogFacPieces 	= 0
-		#self.TotalPlogs 	= 0
-		#self.TotalPhonologicalCost 	= 0
-		#self.TotalListCost 	= 0
-		#self.TotalCost 		= 0
-		#self.LogFacList 	= []
-		#self.PlogList 		= []
-		#self.PhonologicalCostList = []
-		#self.morphs		= []
-		#self.totalmorphcostList = []              # audrey  This doesn't match any member variable in class_word
-		#self.TotalMorphemeListLengthCosts = 0.0   # audrey  This reset was not present in previous code versions
-		#self.MorphemeListLengthCostList	= []
-		#self.SubtotalList	= []
 
 		# RESET ALL MEMBER VARIABLES EXCEPT .word AND .breaks
 		saved_wordstring = self.word
@@ -189,7 +178,7 @@ class class_word:
 			self.LogFacList.append(LogFacPiece)	
 			self.TotalLogFacPieces += LogFacPiece
 	
-			PlogPiece = 10 * GetPlog(morph, morphemes, totalmorphemecount)  # Why 10?  Try it without.  audrey  2015_12_02  
+			PlogPiece = plogcoeff * GetPlog(morph, morphemes, totalmorphemecount)  # Why plogcoeff = 10?  Try it without.  audrey  2015_12_02  
 			self.TotalPlogs += PlogPiece
 			self.PlogList.append(PlogPiece)
 		
@@ -211,6 +200,74 @@ class class_word:
 
 #----------------------------------------------------------#
 #----------------------------------------------------------#
+
+	def CompareAltParse(self):   #self is a word_object
+	
+		point = random.randrange( 1, len(self.word))	 # selects a point to consider splitting at, not beginning or end
+		breakindex = covering_index(point, self.breaks)
+		if breakindex == -1:
+			print "For record with word =", self.word, ": randomly selected point (=", point, ") is greater than all entries in breaks list. Either point or breaks list is incorrect."
+			return
+		
+		# Splitting:
+		if point < self.breaks[breakindex]:
+
+			# local contribution as presently configured
+			left_break = self.breaks[breakindex-1]
+			right_break = self.breaks[breakindex]
+			unbroken_morph = self.word[left_break:right_break]
+			present_contribution = GetSegmentCost(unbroken_morph, morphemes, totalmorphemecount) # here we calculate it; should really just look it up
+
+			# alternative contribution 	
+			left_morph = self.word[left_break:point]
+			right_morph = self.word[point:right_break]
+			alt_contribution = GetSegmentCost(left_morph,  morphemes, totalmorphemecount) + \
+			                   GetSegmentCost(right_morph, morphemes, totalmorphemecount) + \
+			                   math.log(1 + len(self.morphs), 2)
+			# last addend is adjustment to present value of log(factorial( len(self.morphs) ))
+			                   
+			if alt_contribution < present_contribution:
+				self.breaks.insert(breakindex, point)    # or use addcut  
+				self.morphs[breakindex-1] = left_morph
+				self.morphs.insert(breakindex, right_morph)			                   
+				
+				#if loopno >= LoopNumberAtWhichWeStartTracking:    # I think this will work because they're global
+				#if True:    # FOR DEVELOPMENT, PRINT ALL
+					#print >>outfile, "Splitting"
+					##print "Splitting", wordstring		
+					#this_word.display(outfile)
+					#self.display(outfile)
+
+		
+		# Merging:
+		elif point == self.breaks[breakindex]:
+
+			# local contribution as presently configured
+			left_break = self.breaks[breakindex-1]
+			right_break = self.breaks[breakindex+1]
+			left_morph = self.word[left_break:point]
+			right_morph = self.word[point:right_break]
+			present_contribution = GetSegmentCost(left_morph, morphemes, totalmorphemecount) + GetSegmentCost(right_morph, morphemes, totalmorphemecount)
+
+			# alternative contribution 	
+			unbroken_morph = self.word[left_break:right_break]
+			alt_contribution = GetSegmentCost(unbroken_morph, morphemes, totalmorphemecount) - math.log(len(self.morphs), 2)
+			# last addend is adjustment to present value of log(factorial( len(self.morphs) ))
+
+			if alt_contribution < present_contribution:
+				self.morphs[breakindex-1] = unbroken_morph
+				self.morphs.pop(breakindex)
+				self.breaks.pop(breakindex)
+				
+				#self.WordLogFacLength = self.WordLogFacLength + logfacword_adjustment    # Only because it shows up in display audrey 2015_12_16
+
+				#If loopno >= LoopNumberAtWhichWeStartTracking:					
+				#if True:    # FOR DEVELOPMENT, PRINT ALL
+					#print >>outfile, "Merging"
+					##print "Merging", wordstring				
+					#this_word.display(outfile)
+					#self.display(outfile)
+
 
 
  
@@ -302,6 +359,17 @@ def positionInBreaks(point, numberlist):
 			return -1
 	return -1
 #----------------------------------------------------------#
+# returns index in sorted numberlist of "least upper bound" of point--that is, returns index of first entry which is >= point
+# returns -1 if point exceeds all entries
+def covering_index(point, numberlist):	 
+	for n in range(0,len(numberlist)):
+		if numberlist[n] == point:
+			#print "position found: ", n
+			return n
+		if numberlist[n] > point:
+			return n
+	return -1   #should never happen!          
+#----------------------------------------------------------#
 # adds integer point to numberlist, keeping list sorted, returns the index it inserted it at
 def AddIntegerToList(point, numberlist):		#expects that point is less than the last number in numberlist
 	if len(numberlist) == 0:
@@ -312,7 +380,7 @@ def AddIntegerToList(point, numberlist):		#expects that point is less than the l
 			return n
 	return -1
 #----------------------------------------------------------#
-def GetPiece(piecenumber, word, numberlist):
+def GetPiece(piecenumber, word, numberlist):     # NOTICE THERE IS A DIFFERENT FUNCTION getpiece()
 	return word[numberlist[piecenumber-1]: numberlist[piecenumber]]
 #----------------------------------------------------------#
 def GetPlog(morpheme, morphemes, totalmorphemecount):
@@ -322,13 +390,11 @@ def GetPlog(morpheme, morphemes, totalmorphemecount):
 		thiscount = 1
 	return math.log( totalmorphemecount / float( thiscount ) , 2 )
 #----------------------------------------------------------#
-def RecountMorphemes(WordObjectList, morphemes):
+def RecountMorphemes(WordObjectList):   #was (WordObjectList, morphemes)       audrey  2015_12_17
 	newmorphemes = {}
 	for word in WordObjectList:		 
-		for n in range(len(word.breaks)):			 
-			#piece = word[ breaks[word][n-1]:breaks[word][n] ]
+		for n in range(1, len(word.breaks)):	#was range(len(word.breaks))   audrey  2015_12_17		 
 			piece = word.getpiece(n)
-			#IncrementCountAmount(piece,newmorphemes,len(piece))
 			IncrementCount(piece,newmorphemes)
 	return newmorphemes
 		
@@ -353,6 +419,15 @@ def IncrementCount(item, dictionary):
 		dictionary[item] = 1
 	else:
 		dictionary[item] += 1
+#----------------------------------------------------------#
+def GetSegmentCost(morph, morphemes, totalmorphemecount):
+	data_cost = plogcoeff * GetPlog(morph, morphemes, totalmorphemecount)
+	dictionary_phonological_cost = len(morph) * float(BitsPerLetter)
+	dictionary_order_cost = math.log (math.factorial(len(morph)), 2)
+	dictionary_list_cost = 1.0    # audrey   WHY?
+	
+	segment_cost = data_cost + (dictionary_phonological_cost + dictionary_order_cost + dictionary_list_cost)/GetCount(morph, morphemes)
+	return segment_cost
 #----------------------------------------------------------#
 def IncrementCountAmount(item, dictionary, amount):
 	if not item in dictionary:
@@ -572,25 +647,21 @@ for word in wordlist:
 	this_word.breaks.append(0)                     # always put a break at the beginning
 	for n in range(1, len(word)):              # won't randomly put a break at the beginning or end
 		if random.random() < breakprob:    # about every 10 letters add a break
-			piece = word[start:n]				 
+			piece = word[start:n]
+			this_word.morphs.append(piece)
 			this_word.breaks.append( n )
 			start = n	
 			IncrementCount(piece,morphemes)  # increment piece in global morphemes dictionary
 			totalmorphemecount += 1 #len(piece)		 
 	if start < len(word)  :                    # should always be true...
 		piece = word[start:]
+		this_word.morphs.append(piece)
 		this_word.breaks.append( len(word) )   # always put a break at the end
 		IncrementCount(piece,morphemes)
 	 	totalmorphemecount += 1 #len(piece)
-		 
+
 	 
  	WordObjectList.append(this_word)
-		
-pieces = sorted (morphemes, key = morphemes.get, reverse = True  ) # sort by value
-#for piece in pieces:
-#	if morphemes[piece] < 5:    # only add to dictionary if morpheme occurred 5+ times
-#		continue	
-#	print >>outfile, piece, morphemes[piece]    # MAY DECIDE TO PRINT THIS   audrey  2015_12_04
 
 print "End of initial randomization." 
 
@@ -602,107 +673,52 @@ print "End of initial randomization."
 #----------------------------------------------------------#
 #		3. Main loop
 #----------------#----------------------------------------------------------#------------------------------------------#
-NumberOfIterations = 600  # 20000  # 160			# 200 seems to be a good number
-#BestMorphemes = {}          	# a dictionary of morphemes mapped to a list of (loop number, occurence count) pairs that are the best at that loop
-BitsPerLetter = 5
-#logflag = False
+NumberOfIterations = 25  # 20000  # 160			# 200 seems to be a good number
 LoopNumberAtWhichWeStartTracking = 20
 for loopno in range (NumberOfIterations):
-	#print >>outfile, "loop number", loopno	
+	#print >>outfile, "loop number", loopno
 	print loopno 
 	split_count = 0
 	merger_count = 0
 	shift_count = 0
-	for wordno in range(len(WordObjectList)):
-		this_word = WordObjectList[wordno]
-		this_word.EvaluateWordParse(morphemes,totalmorphemecount)
-		
-		wordstring = this_word.word	 
-		len_wordstring = len(wordstring)
-		# don't bother with morpheme analysis in a 1-letter word
-		if len_wordstring < 2:	
-			continue
-		point = random.randrange( 1, len_wordstring)	 # selects a point to consider splitting at, not beginning or end
 
-		breakpt = positionInBreaks(point, this_word.breaks) #returns -1 if point is not a breakpoint in this word	
-		# Splitting:
-		if breakpt == -1: # we make an alternative parse in which there is a break at this point
-			that_word = class_word(wordstring)  #makes a copy
-			that_word.partialcopy(this_word)
-			that_word.addcut(point)			
-			that_word.EvaluateWordParse(morphemes,totalmorphemecount)
-			 
+	for this_word in WordObjectList:
+		this_word.CompareAltParse()
 
-
-			if that_word.TotalCost < this_word.TotalCost:
-				# we want to replace this_word by that_word
-				WordObjectList[wordno] = that_word
-				# audrey  2015_12_09  reincluding the following 5 lines (temporary)
-				#if loopno >= LoopNumberAtWhichWeStartTracking:
-					#print >>outfile, "Splitting"
-					#print "Splitting", wordstring		
-					#this_word.display(outfile)
-					#that_word.display(outfile)
-
-
-		else: #we make an alternative parse in which there is no break at this point
-			that_word = class_word(wordstring) 
-			that_word.partialcopy(this_word)
-			that_word.removecut(point)			
-			that_word.EvaluateWordParse(morphemes,totalmorphemecount)
-			 
-			 
-
-			if that_word.TotalCost < this_word.TotalCost:
-				# we want to replace this_word by that_word
-				WordObjectList[wordno] = that_word				
-				# audrey  2015_12_09  reincluding the following 5 lines (temporary)
-				#if loopno >= LoopNumberAtWhichWeStartTracking:					
-					#print >>outfile, "Merging"
-					#print "Merging", wordstring				
-					#this_word.display(outfile)
-					#that_word.display(outfile)
-				 
-		 
- 
 	if split_count + merger_count + shift_count > 1:    # Note that these counts are not maintained    audrey  2015_12_03
 		# prints to both output file and stdout
 		#print >>outfile, loopno , "Splits during this loop:", split_count, "Merges: ", merger_count,  "Shifts: ", shift_count
 		print loopno, "Splits during this loop:", split_count, "Merges: ", merger_count, "Shifts: ", shift_count
+
 	# recalculate morpheme frequencies & number of morphemes
-	morphemes = RecountMorphemes(WordObjectList,morphemes)	 
+	#morphemes = RecountMorphemes(WordObjectList,morphemes)	 
+	morphemes = RecountMorphemes(WordObjectList)	 
 	totalmorphemecount = ComputeTotalMorphemeCount(morphemes)
+	
 	#----------------------------------------------------------#
 	#       output intermediate results 			   #	
 	#----------------------------------------------------------#
-	# prints out the 100 top morphemes initially, after 10 loops, after 100, and after 200
 	#if loopno == 0  or  loopno == 10 or loopno == 20 or  loopno == 100 or loopno == NumberOfIterations -1:
 	if loopno == NumberOfIterations -1:
+
+ 		# COMPUTES COSTS USING FINAL COUNTS. DOES NOT CHANGE PARSE.	
+		for this_word in WordObjectList:  
+			this_word.EvaluateWordParse(morphemes,totalmorphemecount)		
+
  
 		# first: print ALL words, with their analysis.
  		#print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
  		print >>outfile1, "----------------------------------------\nLoop number:", loopno, "\n"
-		PrintAllWords(WordObjectList,outfile1,loopno)
+		PrintAllWords(WordObjectList,outfile1,loopno)          # outfile1 is "word_list.txt"
 		threshold = 0
 		print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
-		PrintTopMorphemes(WordObjectList, outfile,threshold)
-		#pieces = sorted (morphemes, key = morphemes.get, reverse = True  ) # sort by value
+		PrintTopMorphemes(WordObjectList, outfile,threshold)   # outfile is "gibbs_pieces.txt"
 		
-		# prints out the 100 top morphemes
-		#for n in range (100):	
-		#	morph = pieces[n]
-		#	print >>outfile, n, morph , morphemes[morph]
-		#	if not morph in BestMorphemes:
-		#		BestMorphemes[morph] = []
-		#	BestMorphemes[morph].append((loopno, morphemes[morph] ))
 
-#for morph in BestMorphemes.keys():
-#	print >>outfile, morph, BestMorphemes[morph]
 
-# MOVED UPWARD SO THAT PERSON DOING INTERACTIVE QUERIES CAN VIEW THE INFORMATION DERIVED BY PROGRAM
+# MOVED UPWARD TO HERE SO THAT PERSON DOING INTERACTIVE QUERIES CAN VIEW THE INFORMATION DERIVED BY PROGRAM
 outfile1.close()
 outfile.close() 
-
 
 
 CommandList=list()
