@@ -11,21 +11,24 @@ morphemes = {}
 totalmorphemecount = 0.0
 random.seed(a=5)    # audrey  2015_12_09
 
-BitsPerLetter = 5   # moved upward to here  audrey  2015_12_16
-plogcoeff = 10      # used in both GetSegmentCost() and EvaluateWordCost()
-					# in future EvaluateWordCost() will instead call GetSegmentCost()
+# PARAMETERS
+BitsPerLetter = 5
+breakprob     = 0.1  # 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
+defaultcount  = 1    #0.5  # Used in GetCount()   tbd  2016_01_09
+plogcoeff     = 10   # used in both GetSegmentCost() and EvaluateWordCost()
+					 # expect redesign in future
 
 ## ---------------------------------------------------------------------------------------##
 class class_word:
 ## ---------------------------------------------------------------------------------------##
 	def __init__(self, this_word):
 		self.word = this_word
-		self.TotalLogFacPieces 	= 0
-		self.TotalPlogs 	= 0
-		self.TotalPhonologicalCost = 0
+		#self.TotalLogFacPieces 	= 0
+		#self.TotalPlogs 	= 0
+		#self.TotalPhonologicalCost = 0
 		self.TotalCost 		= 0
 		self.WordLogFacLength 	= 0.0
-		self.TotalMorphemeListLengthCosts = 0.0
+		#self.TotalMorphemeListLengthCosts = 0.0
 		self.LogFacList 	= []
 		self.PlogList 		= []
 		self.PhonologicalCostList= []
@@ -51,7 +54,15 @@ class class_word:
 
 	def getpiece(self, pieceno):   # NOTICE THERE IS A DIFFERENT FUNCTION GetPiece()
 		return self.word[self.breaks[pieceno-1]:self.breaks[pieceno]]
-
+		
+	def displaytextonly(self, outfile):
+		FormatString1 = "%20s"
+		print >>outfile, self.word,"  breaks:",  self.breaks
+		print >>outfile, "  morphs:",		 
+		for n in range(1,len(self.breaks)):
+			print >>outfile, self.getpiece(n), "",    # note the comma for continuation
+		print >>outfile
+	
 	def display(self, outfile):
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
@@ -157,51 +168,52 @@ class class_word:
 #----------------------------------------------------------#
 #----------------------------------------------------------#
 
-	def EvaluateWordParse(self,morphemes,totalmorphemecount):
-
+	def EvaluateWordParse(self,morphemes,totalmorphemecount):  
+		# NOTE - DEPENDENT ON PARAMETERS defaultcount, plogcoeff
+	
 		# RESET ALL MEMBER VARIABLES EXCEPT .word AND .breaks
 		saved_wordstring = self.word
 		saved_breaks = self.breaks		
 		self.__init__(saved_wordstring)
 		self.breaks = saved_breaks
 		
-		splitword = []    # a list of the morphemes in a word
-		start = 0         # what index the morpheme starts at
-		# fills splitword with the current morphemes
+		start = 0 
 		for n in range( 1,len(self.breaks) ):			#breaks[word] is a list of integers indicating morpheme breaks
 			self.morphs.append( self.word[start: self.breaks[n] ] )	#   list of the morphemes
 			start = self.breaks[n]
-		self.WordLogFacLength =  math.log (math.factorial(len(self.morphs)), 2)    # audrey  Why factorial? Isn't order known via breaks?
+
 		for morph in self.morphs:
-			#LogFacPiece =  math.log (math.factorial(len(morph)), 2)    # audrey  In coursenotes, this cost is shared by occurrences of morph
-			LogFacPiece =  math.log (math.factorial(len(morph)), 2)/GetCount(morph,morphemes)   # Try it!  audrey  2015_12_11
-			self.LogFacList.append(LogFacPiece)	
-			self.TotalLogFacPieces += LogFacPiece
-	
-			PlogPiece = plogcoeff * GetPlog(morph, morphemes, totalmorphemecount)  # Why plogcoeff = 10?  Try it without.  audrey  2015_12_02  
-			self.TotalPlogs += PlogPiece
-			self.PlogList.append(PlogPiece)
-		
+			PlogPiece = plogcoeff * GetPlog(morph, morphemes, totalmorphemecount)  # Why plogcoeff = 10?   audrey  2015_12_02  		
+			LogFacPiece =  math.log (math.factorial(len(morph)), 2)/GetCount(morph,morphemes)	
 			PhonologicalCost = len(morph) * float(BitsPerLetter)/GetCount(morph,morphemes)
-			self.TotalPhonologicalCost += PhonologicalCost
-			self.PhonologicalCostList.append(PhonologicalCost)
-	
- 
-			CostOfHavingMorphOnMorphList = 1.0/GetCount(morph,morphemes)    # audrey   WHY?
-			self.MorphemeListLengthCostList.append (CostOfHavingMorphOnMorphList)
-			self.TotalMorphemeListLengthCosts += CostOfHavingMorphOnMorphList
+ 			CostOfHavingMorphOnMorphList = 1.0/GetCount(morph,morphemes)    # audrey   WHY?
 
-			self.SubtotalList.append( LogFacPiece + PlogPiece + PhonologicalCost + CostOfHavingMorphOnMorphList ) 		
+			ThisPieceCost = PlogPiece + LogFacPiece + PhonologicalCost + CostOfHavingMorphOnMorphList
+			self.TotalCost += ThisPieceCost
 		
-	 
+			# THESE LIST VARIABLES EXIST FOR DISPLAY ONLY  [expect changes if class structure is reworked]
+			self.PlogList.append(PlogPiece)
+			self.LogFacList.append(LogFacPiece)	
+			self.PhonologicalCostList.append(PhonologicalCost)	
+			self.MorphemeListLengthCostList.append (CostOfHavingMorphOnMorphList)
+			self.SubtotalList.append(ThisPieceCost) 		
 
-		self.TotalCost = self.WordLogFacLength + self.TotalLogFacPieces + self.TotalPlogs + self.TotalPhonologicalCost +  self.TotalMorphemeListLengthCosts
+			# THESE VARIABLES PREVIOUSLY WERE USED IN THIS function
+			#self.TotalPlogs += PlogPiece
+			#self.TotalLogFacPieces += LogFacPiece
+			#self.TotalPhonologicalCost += PhonologicalCost
+			#self.TotalMorphemeListLengthCosts += CostOfHavingMorphOnMorphList
+
+
+		self.WordLogFacLength =  math.log (math.factorial(len(self.morphs)), 2)
+		self.TotalCost += self.WordLogFacLength
 		return  
 
+
 #----------------------------------------------------------#
 #----------------------------------------------------------#
 
-	def CompareAltParse(self):   #self is a word_object
+	def CompareAltParse(self, split_count, merger_count):   #self is a word_object
 	
 		point = random.randrange( 1, len(self.word))	 # selects a point to consider splitting at, not beginning or end
 		breakindex = covering_index(point, self.breaks)
@@ -227,6 +239,7 @@ class class_word:
 			# last addend is adjustment to present value of log(factorial( len(self.morphs) ))
 			                   
 			if alt_contribution < present_contribution:
+				split_count = split_count + 1
 				self.breaks.insert(breakindex, point)    # or use addcut  
 				self.morphs[breakindex-1] = left_morph
 				self.morphs.insert(breakindex, right_morph)			                   
@@ -255,20 +268,19 @@ class class_word:
 			# last addend is adjustment to present value of log(factorial( len(self.morphs) ))
 
 			if alt_contribution < present_contribution:
+				merger_count = merger_count + 1
 				self.morphs[breakindex-1] = unbroken_morph
 				self.morphs.pop(breakindex)
 				self.breaks.pop(breakindex)
 				
-				#self.WordLogFacLength = self.WordLogFacLength + logfacword_adjustment    # Only because it shows up in display audrey 2015_12_16
-
 				#If loopno >= LoopNumberAtWhichWeStartTracking:					
 				#if True:    # FOR DEVELOPMENT, PRINT ALL
 					#print >>outfile, "Merging"
 					##print "Merging", wordstring				
 					#this_word.display(outfile)
 					#self.display(outfile)
-
-
+					
+		return (split_count, merger_count)
 
  
 #----------------------------------------------------------#
@@ -345,8 +357,22 @@ def PrintAllWords (wordclasslist, myoutfile,label):
 	print >>myoutfile, "----------------------------------------\n"
 
 	for word in wordclasslist:
-		word.display(myoutfile)
+		word.display(myoutfile)          # displays parse and cost information 
+		
+	# NOTE
+		# The textonly version (next) is useful for seeing the effect of development changes.
+		# The full display may then be used to analyze specific examples.
 
+#----------------------------------------------------------#
+def PrintAllWords_textonly (wordclasslist, myoutfile,label):
+
+	print >>myoutfile, "----------------------------------------\n"
+	print >>myoutfile, "Word List:", label , "\n",
+	print >>myoutfile, "----------------------------------------\n"
+
+	for word in wordclasslist:
+		word.displaytextonly(myoutfile)   # displays only unbroken line and its parse
+		#word.display(myoutfile)          # displays also cost information  
 
 #----------------------------------------------------------#
 # returns the position of point in sorted list numberlist, returns -1 if point is not in numberlist
@@ -384,10 +410,13 @@ def GetPiece(piecenumber, word, numberlist):     # NOTICE THERE IS A DIFFERENT F
 	return word[numberlist[piecenumber-1]: numberlist[piecenumber]]
 #----------------------------------------------------------#
 def GetPlog(morpheme, morphemes, totalmorphemecount):
-	if morpheme in morphemes:
-		thiscount = morphemes[morpheme]
-	else:
-		thiscount = 1
+
+#	if morpheme in morphemes:
+#		thiscount = morphemes[morpheme]
+#	else:
+#		thiscount = 1
+
+	thiscount = GetCount(morpheme, morphemes)	# tbd  2016_01_09  audrey
 	return math.log( totalmorphemecount / float( thiscount ) , 2 )
 #----------------------------------------------------------#
 def RecountMorphemes(WordObjectList):   #was (WordObjectList, morphemes)       audrey  2015_12_17
@@ -408,7 +437,7 @@ def ComputeTotalMorphemeCount(morphemes):
 
 #----------------------------------------------------------#
 def GetCount(item, dictionary):
-	defaultcount = 1# 0.25 # 1
+	# defaultcount = 0.5   # 0.25 # 1   #defaultcount set now in parameters section at top of file
 	if not item in dictionary:
 		return defaultcount
 	else:
@@ -421,6 +450,8 @@ def IncrementCount(item, dictionary):
 		dictionary[item] += 1
 #----------------------------------------------------------#
 def GetSegmentCost(morph, morphemes, totalmorphemecount):
+	# NOTE - DEPENDENT ON PARAMETERS defaultcount, plogcoeff
+	
 	data_cost = plogcoeff * GetPlog(morph, morphemes, totalmorphemecount)
 	dictionary_phonological_cost = len(morph) * float(BitsPerLetter)
 	dictionary_order_cost = math.log (math.factorial(len(morph)), 2)
@@ -586,13 +617,16 @@ print "Data file: ", infilename
 outfolder = '../data/'+ language + '/gibbs_wordbreaking/'
 outfilename = outfolder +  "gibbs_pieces.txt"
 outfilename1 = outfolder +  "word_list.txt"
+outfilename2 = outfolder +  "split_merge_counts.txt"
 if g_encoding == "utf8":
 	outfile = codecs.open(outfilename, encoding =  "utf-8", mode = 'w',)
 	outfile1 = codecs.open(outfilename1, encoding =  "utf-8", mode = 'w',)
+	outfile2 = codecs.open(outfilename2, encoding =  "utf-8", mode = 'w',)
 	print "yes utf8"
 else:
 	outfile = open(outfilename,mode='w') 
 	outfile1 = open(outfilename1,mode='w') 
+ 	outfile2 = open(outfilename2,mode='w') 
  
 #------------------------------------#
 
@@ -633,8 +667,7 @@ print "length of wordlist: ", len(wordlist)
 #	2. Random splitting of words
 #---------------------------------------------------------#
  
-breakprob = 0.1  # where does this probability come from? is it a statistic about languages in general/English?
-#breaks = {}   # a dictionary of words mapped to a list of indices where the breaks are
+#breakprob = 0.1  #now set in Parameters section at top of file # where does this probability come from? is it a statistic about languages in general/English?
 totalmorphemecount = 0  # number of morphemes, counting duplicates
 WordObjectList = [] # this is a list of objects of class class_word
 
@@ -674,24 +707,23 @@ print "End of initial randomization."
 #		3. Main loop
 #----------------#----------------------------------------------------------#------------------------------------------#
 NumberOfIterations = 25  # 20000  # 160			# 200 seems to be a good number
+print "Number of iterations: ", NumberOfIterations
 LoopNumberAtWhichWeStartTracking = 20
 for loopno in range (NumberOfIterations):
 	#print >>outfile, "loop number", loopno
-	print loopno 
+	#print loopno     #commented out here because loopno now appears onscreen with split and merger counts
 	split_count = 0
 	merger_count = 0
 	shift_count = 0
 
 	for this_word in WordObjectList:
-		this_word.CompareAltParse()
+		(split_count, merger_count) = this_word.CompareAltParse(split_count, merger_count)
 
-	if split_count + merger_count + shift_count > 1:    # Note that these counts are not maintained    audrey  2015_12_03
-		# prints to both output file and stdout
-		#print >>outfile, loopno , "Splits during this loop:", split_count, "Merges: ", merger_count,  "Shifts: ", shift_count
-		print loopno, "Splits during this loop:", split_count, "Merges: ", merger_count, "Shifts: ", shift_count
+	if split_count + merger_count > 0:
+		print >>outfile2, "%4s" %loopno, " ", split_count, merger_count
+		print "%4s" %loopno, " ", split_count, merger_count
 
 	# recalculate morpheme frequencies & number of morphemes
-	#morphemes = RecountMorphemes(WordObjectList,morphemes)	 
 	morphemes = RecountMorphemes(WordObjectList)	 
 	totalmorphemecount = ComputeTotalMorphemeCount(morphemes)
 	
@@ -702,6 +734,7 @@ for loopno in range (NumberOfIterations):
 	if loopno == NumberOfIterations -1:
 
  		# COMPUTES COSTS USING FINAL COUNTS. DOES NOT CHANGE PARSE.	
+ 		# (Currently costs are not displayed in output. Subject to change in future, especially in an interactuve mode.)
 		for this_word in WordObjectList:  
 			this_word.EvaluateWordParse(morphemes,totalmorphemecount)		
 
@@ -709,7 +742,8 @@ for loopno in range (NumberOfIterations):
 		# first: print ALL words, with their analysis.
  		#print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
  		print >>outfile1, "----------------------------------------\nLoop number:", loopno, "\n"
-		PrintAllWords(WordObjectList,outfile1,loopno)          # outfile1 is "word_list.txt"
+		#PrintAllWords(WordObjectList,outfile1,loopno)             # outfile1 is "word_list.txt"
+		PrintAllWords_textonly(WordObjectList,outfile1,loopno)     # makes it easier to see parse diffs   audrey  2015_12_21
 		threshold = 0
 		print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
 		PrintTopMorphemes(WordObjectList, outfile,threshold)   # outfile is "gibbs_pieces.txt"
@@ -717,6 +751,7 @@ for loopno in range (NumberOfIterations):
 
 
 # MOVED UPWARD TO HERE SO THAT PERSON DOING INTERACTIVE QUERIES CAN VIEW THE INFORMATION DERIVED BY PROGRAM
+outfile2.close()
 outfile1.close()
 outfile.close() 
 
