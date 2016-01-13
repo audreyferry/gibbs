@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import sys
 import os
@@ -9,7 +9,7 @@ shift_counter = []
 
 morphemes = {}
 totalmorphemecount = 0.0
-random.seed(a=5)    # audrey  2015_12_09
+random.seed(a=5)    # audrey  2015_12_09  #Note that integer seed is not affected by seed change in python3
 
 # PARAMETERS
 BitsPerLetter = 5
@@ -57,11 +57,11 @@ class class_word:
 		
 	def displaytextonly(self, outfile):
 		FormatString1 = "%20s"
-		print >>outfile, self.word,"  breaks:",  self.breaks
-		print >>outfile, "  morphs:",		 
+		print(self.word, " breaks:",  self.breaks, file=outfile)
+		print("  morphs:", end=' ', file=outfile)		 
 		for n in range(1,len(self.breaks)):
-			print >>outfile, self.getpiece(n), "",    # note the comma for continuation
-		print >>outfile
+			print(self.getpiece(n), "", end=' ', file=outfile)    # note the comma for continuation
+		print(file=outfile)
 	
 	def display(self, outfile):
 		FormatString1 = "%20s"
@@ -71,42 +71,42 @@ class class_word:
 
 		Total = 0
 
-		print >>outfile,"\n", self.word,"breaks:",  self.breaks
+		print("\n", self.word,"breaks:",  self.breaks, file=outfile)
 		
-		print >>outfile, FormatString1 %("morphs:"),		 
+		print(FormatString1 %("morphs:"), end=' ', file=outfile)		 
 		for n in range(1,len(self.breaks)):
-			print >>outfile, FormatString3 %(self.getpiece(n)),
-		print >>outfile
+			print(FormatString3 %(self.getpiece(n)), end=' ', file=outfile)
+		print(file=outfile)
 
- 		print >>outfile, FormatString1 %("plog:"),	
+		print(FormatString1 %("plog:"), end=' ', file=outfile)	
 		for item in self.PlogList:
-			print >>outfile,FormatString2 %(item),
-		print >>outfile
- 		print >>outfile, FormatString1 %("log |piece|!:"),	
+			print(FormatString2 %(item), end=' ', file=outfile)
+		print(file=outfile)
+		print(FormatString1 %("log |piece|!:"), end=' ', file=outfile)	
 		for item in self.LogFacList:
-			print >>outfile,FormatString2 %(item),
-		print >>outfile
-		print >>outfile, FormatString1 %("phono info:"),	
+			print(FormatString2 %(item), end=' ', file=outfile)
+		print(file=outfile)
+		print(FormatString1 %("phono info:"), end=' ', file=outfile)	
 		for item in self.PhonologicalCostList:
-			print >>outfile,FormatString2 %(item),
-		print >>outfile
+			print(FormatString2 %(item), end=' ', file=outfile)
+		print(file=outfile)
 
-		print >>outfile, FormatString1 %("morpheme list cost:"),	
+		print(FormatString1 %("morpheme list cost:"), end=' ', file=outfile)	
 		for item in self.MorphemeListLengthCostList:
-			print >>outfile,FormatString2 %(item),
-		print >>outfile
-		print >>outfile, FormatString1 %("subtotal:"),	
+			print(FormatString2 %(item), end=' ', file=outfile)
+		print(file=outfile)
+		print(FormatString1 %("subtotal:"), end=' ', file=outfile)	
 		for item in self.SubtotalList:
-			print >>outfile,FormatString2 %(item),
+			print(FormatString2 %(item), end=' ', file=outfile)
 			Total += item
-		print >>outfile
+		print(file=outfile)
 
 		logfacword = self.WordLogFacLength
-		print >>outfile, FormatString1 %("log |word|!:"),
-		print >>outfile,FormatString2 %( logfacword ),
-		print >>outfile
-		print >>outfile, FormatString1 %("Total:"),
-		print >>outfile,FormatString2 %( self.TotalCost  )
+		print(FormatString1 %("log |word|!:"), end=' ', file=outfile)
+		print(FormatString2 %( logfacword ), end=' ', file=outfile)
+		print(file=outfile)
+		print(FormatString1 %("Total:"), end=' ', file=outfile)
+		print(FormatString2 %( self.TotalCost  ), file=outfile)
 
 	def displaytoscreen(self):
 		FormatString1 = "%20s"
@@ -116,42 +116,42 @@ class class_word:
 
 		Total = 0
 
-		print  self.word, "breaks", self.breaks
+		print(self.word, "breaks", self.breaks)
 		
-		print FormatString1 %("morphs:"),		 
+		print(FormatString1 %("morphs:"), end=' ')		 
 		for n in range(1,len(self.breaks)):
-			print FormatString3 %(self.getpiece(n)),
-		print 
+			print(FormatString3 %(self.getpiece(n)), end=' ')
+		print() 
 
- 		print FormatString1 %("plog:"),	
+		print(FormatString1 %("plog:"), end=' ')	
 		for item in self.PlogList:
-			print FormatString2 %(item),
-		print 
- 		print FormatString1 %("log |piece|!:"),	
+			print(FormatString2 %(item), end=' ')
+		print() 
+		print(FormatString1 %("log |piece|!:"), end=' ')	
 		for item in self.LogFacList:
-			print FormatString2 %(item),
-		print 
-		print FormatString1 %("phono info:"),	
+			print(FormatString2 %(item), end=' ')
+		print() 
+		print(FormatString1 %("phono info:"), end=' ')	
 		for item in self.PhonologicalCostList:
-			print FormatString2 %(item),
-		print 
+			print(FormatString2 %(item), end=' ')
+		print() 
 
-		print FormatString1 %("morpheme list cost:"),	
+		print(FormatString1 %("morpheme list cost:"), end=' ')	
 		for item in self.MorphemeListLengthCostList:
-			print FormatString2 %(item),
-		print 
-		print FormatString1 %("subtotal:"),	
+			print(FormatString2 %(item), end=' ')
+		print() 
+		print(FormatString1 %("subtotal:"), end=' ')	
 		for item in self.SubtotalList:
-			print FormatString2 %(item),
+			print(FormatString2 %(item), end=' ')
 			Total += item
-		print 
+		print() 
 
 		logfacword = self.WordLogFacLength
-		print FormatString1 %("log |word|!:"),
-		print FormatString2 %( logfacword ),
-		print 
-		print FormatString1 %("Total:"),
-		print FormatString2 %( self.TotalCost  )
+		print(FormatString1 %("log |word|!:"), end=' ')
+		print(FormatString2 %( logfacword ), end=' ')
+		print() 
+		print(FormatString1 %("Total:"), end=' ')
+		print(FormatString2 %( self.TotalCost  ))
 		 
  
  
@@ -186,7 +186,7 @@ class class_word:
 			PlogPiece = plogcoeff * GetPlog(morph, morphemes, totalmorphemecount)  # Why plogcoeff = 10?   audrey  2015_12_02  		
 			LogFacPiece =  math.log (math.factorial(len(morph)), 2)/GetCount(morph,morphemes)	
 			PhonologicalCost = len(morph) * float(BitsPerLetter)/GetCount(morph,morphemes)
- 			CostOfHavingMorphOnMorphList = 1.0/GetCount(morph,morphemes)    # audrey   WHY?
+			CostOfHavingMorphOnMorphList = 1.0/GetCount(morph,morphemes)    # audrey   WHY?
 
 			ThisPieceCost = PlogPiece + LogFacPiece + PhonologicalCost + CostOfHavingMorphOnMorphList
 			self.TotalCost += ThisPieceCost
@@ -216,9 +216,11 @@ class class_word:
 	def CompareAltParse(self, split_count, merger_count):   #self is a word_object
 	
 		point = random.randrange( 1, len(self.word))	 # selects a point to consider splitting at, not beginning or end
+		#point = 1 + int(random.random() * (len(self.word)-1))	 # 
+		#print("point =", point)  # randrange changed in python3, so output doesn't match pre-python3 runs. Using random.random() as shown DOES exactly reproduce pre-python3 results, except for spacing and ordering.
 		breakindex = covering_index(point, self.breaks)
 		if breakindex == -1:
-			print "For record with word =", self.word, ": randomly selected point (=", point, ") is greater than all entries in breaks list. Either point or breaks list is incorrect."
+			print("For record with word =", self.word, ": randomly selected point (=", point, ") is greater than all entries in breaks list. Either point or breaks list is incorrect.")
 			return
 		
 		# Splitting:
@@ -297,7 +299,7 @@ class class_word:
 		this_word = self.word
 		
 		#ADDED    audrey    2015_12_02
-		print "\npoint = 0 (i.e., unbroken word)"
+		print("\npoint = 0 (i.e., unbroken word)")
 		test_parse = class_word(this_word)
 		test_parse.breaks = [0, len(this_word)]
 		test_parse.EvaluateWordParse(morphemes,totalmorphemecount)
@@ -305,7 +307,7 @@ class class_word:
 		test_parse.displaytoscreen()
 		
 		for point in range(1,len(this_word)):
-			print "\npoint =", point
+			print("\npoint =", point)
 			test_parse = class_word(this_word)	
 			test_parse.breaks = [0, len(this_word)]     # ADDED  2015_12_02    audrey
 			
@@ -319,14 +321,14 @@ class class_word:
 			test_parse.displaytoscreen()
 			
 		if bestscore > 0:
-			print "\nBest score = ", bestscore, "at point = ", bestlocation, "\n"    # FORMAT bestscore AS %8.1f
+			print("\nBest score = ", bestscore, "at point = ", bestlocation, "\n")    # FORMAT bestscore AS %8.1f
 			
 ## ---------------------------------------------------------------------------------------##
 ##		End of class class_word:
 ## ---------------------------------------------------------------------------------------##
 
 def PrintTopMorphemes(WordObjectList, outfile,threshold):
-	print >>outfile, "\n\nDictionary:"
+	print("\n\nDictionary:", file=outfile)
 	morphemes = {}
 	for word in WordObjectList: 	
 		for n in range(1,len(word.breaks)):		 
@@ -339,7 +341,7 @@ def PrintTopMorphemes(WordObjectList, outfile,threshold):
 		morph = pieces[n]
 		if morphemes[morph] <= threshold:
 			break
-		print >>outfile, n, morph , morphemes[morph]
+		print(n, morph , morphemes[morph], file=outfile)
 #		if not morph in BestMorphemes:
 #			BestMorphemes[morph] = []
 #		BestMorphemes[morph].append((loopno, morphemes[morph] ))
@@ -352,9 +354,9 @@ def PrintTopMorphemes(WordObjectList, outfile,threshold):
 #----------------------------------------------------------#
 def PrintAllWords (wordclasslist, myoutfile,label):
 
-	print >>myoutfile, "----------------------------------------\n"
-	print >>myoutfile, "Word List:", label , "\n",
-	print >>myoutfile, "----------------------------------------\n"
+	print("----------------------------------------\n", file=myoutfile)
+	print("Word List:", label , "\n", end=' ', file=myoutfile)
+	print("----------------------------------------\n", file=myoutfile)
 
 	for word in wordclasslist:
 		word.display(myoutfile)          # displays parse and cost information 
@@ -366,9 +368,9 @@ def PrintAllWords (wordclasslist, myoutfile,label):
 #----------------------------------------------------------#
 def PrintAllWords_textonly (wordclasslist, myoutfile,label):
 
-	print >>myoutfile, "----------------------------------------\n"
-	print >>myoutfile, "Word List:", label , "\n",
-	print >>myoutfile, "----------------------------------------\n"
+	print("----------------------------------------\n", file=myoutfile)
+	print("Word List:", label , "\n", end=' ', file=myoutfile)
+	print("----------------------------------------\n", file=myoutfile)
 
 	for word in wordclasslist:
 		word.displaytextonly(myoutfile)   # displays only unbroken line and its parse
@@ -470,17 +472,17 @@ def IncrementCountAmount(item, dictionary, amount):
 #----------------------------------------------------------#
 
 def ConsolePrint (word):
-  print word,
-  if word not in breaks:
-    "Word not found." 
-    return
-  for n in breaks[word]:		
-	if n==0:
+	print(word, end=' ')
+	if word not in breaks:
+		"Word not found." 
+		return
+	for n in breaks[word]:		
+		if n==0:
+			previous = n
+			continue		 
+		print(word[ previous: n ], end=' ')
 		previous = n
-		continue		 
-	print word[ previous: n ],
-	previous = n
-  print
+	print()
 
 
 
@@ -518,7 +520,7 @@ def ShiftBreak (word, thiswordbreaks, shiftamount, outfile, totalmorphemecount):
 		splitword.append( word[start: word.breaks[n] ] )	# splitword is a list of the morphemes
 		start = thiswordbreaks[n]	 
 	# info about old pieces
- 	OldLeftPiece  			= GetPiece( breakindex, word, thiswordbreaks )
+	OldLeftPiece  			= GetPiece( breakindex, word, thiswordbreaks )
 	OldRightPiece 			= GetPiece( breakindex+1, word,  thiswordbreaks )
 	count1 				= GetCount(OldLeftPiece,morphemes)
 	phonologicalcostOldLeftPiece 	= BitsPerLetter * len(OldLeftPiece) / float(count1)
@@ -548,7 +550,7 @@ def ShiftBreak (word, thiswordbreaks, shiftamount, outfile, totalmorphemecount):
 	newplogRight 			= GetPlog(NewRightPiece, morphemes,totalmorphemecount)
 	newscore   			= newplogLeft + newplogRight +  logfacNewLeftPiece + logfacNewRightPiece    + phonologicalcostNewLeftPiece + phonologicalcostNewRightPiece
 
- 	start = 0
+	start = 0
 	newsplitword = []
 	for n in range(1, len(newwordbreaks) ):				#breaks[word] is a list of integers indicating morpheme breaks
 		newsplitword.append( word[start: newwordbreaks[n] ] )	# splitword is a list of the morphemes
@@ -556,11 +558,11 @@ def ShiftBreak (word, thiswordbreaks, shiftamount, outfile, totalmorphemecount):
 
 	if newscore < oldscore:
 		if False:
-			print "shifting " + ' '.join(splitword) + ' to ' + ' '.join(newsplitword)
+			print("shifting " + ' '.join(splitword) + ' to ' + ' '.join(newsplitword))
 			shift_counter.append(1)
-			print ShiftFormatString1 % (word, splitword, OldLeftPiece, OldRightPiece, NewLeftPiece, NewRightPiece, oldscore, newscore )	
-			print ShiftFormatString2 %(  oldplogLeft , oldplogRight, newplogLeft, newplogRight) 		 				 
-			print ShiftFormatString3 %(  logfacOldLeftPiece , logfacOldRightPiece, logfacNewLeftPiece, logfacNewRightPiece) 
+			print(ShiftFormatString1 % (word, splitword, OldLeftPiece, OldRightPiece, NewLeftPiece, NewRightPiece, oldscore, newscore ))	
+			print(ShiftFormatString2 %(  oldplogLeft , oldplogRight, newplogLeft, newplogRight)) 		 				 
+			print(ShiftFormatString3 %(  logfacOldLeftPiece , logfacOldRightPiece, logfacNewLeftPiece, logfacNewRightPiece)) 
 		return (True, newwordbreaks )
 	return (False, thiswordbreaks)	
 
@@ -602,16 +604,16 @@ infilename = infolder + "english-brown-unbroken.txt"  # unbroken corpus, instead
 
 # if an argument is specified, uses that instead of the above path for input
 if len(sys.argv) > 1:
-	print sys.argv[1]
+	print(sys.argv[1])
 	infilename = sys.argv[1] 
 if not os.path.isfile(infilename):
-	print "Warning: ", infilename, " does not exist."
+	print("Warning: ", infilename, " does not exist.")
 if g_encoding == "utf8":
 	infile = codecs.open(infilename, encoding = 'utf-8')
 else:
 	infile = open(infilename) 
 
-print "Data file: ", infilename
+print("Data file: ", infilename)
 
 # organize files like this or change the paths here for output
 outfolder = '../data/'+ language + '/gibbs_wordbreaking/'
@@ -622,11 +624,11 @@ if g_encoding == "utf8":
 	outfile = codecs.open(outfilename, encoding =  "utf-8", mode = 'w',)
 	outfile1 = codecs.open(outfilename1, encoding =  "utf-8", mode = 'w',)
 	outfile2 = codecs.open(outfilename2, encoding =  "utf-8", mode = 'w',)
-	print "yes utf8"
+	print("yes utf8")
 else:
 	outfile = open(outfilename,mode='w') 
 	outfile1 = open(outfilename1,mode='w') 
- 	outfile2 = open(outfilename2,mode='w') 
+	outfile2 = open(outfilename2,mode='w') 
  
 #------------------------------------#
 
@@ -651,7 +653,7 @@ else:
 
 # THIS PART IS FOR READING CORPUS
 wordlist = infile.readlines()    #  This is a list  audrey   2015_12_04
-print "length of wordlist: ", len(wordlist)
+print("length of wordlist: ", len(wordlist))
 
 #---------------------------------------------------------#
 #	End of file input, output
@@ -691,12 +693,12 @@ for word in wordlist:
 		this_word.morphs.append(piece)
 		this_word.breaks.append( len(word) )   # always put a break at the end
 		IncrementCount(piece,morphemes)
-	 	totalmorphemecount += 1 #len(piece)
+		totalmorphemecount += 1 #len(piece)
 
 	 
- 	WordObjectList.append(this_word)
+	WordObjectList.append(this_word)
 
-print "End of initial randomization." 
+print("End of initial randomization.") 
 
 
 
@@ -707,7 +709,7 @@ print "End of initial randomization."
 #		3. Main loop
 #----------------#----------------------------------------------------------#------------------------------------------#
 NumberOfIterations = 25  # 20000  # 160			# 200 seems to be a good number
-print "Number of iterations: ", NumberOfIterations
+print("Number of iterations: ", NumberOfIterations)
 LoopNumberAtWhichWeStartTracking = 20
 for loopno in range (NumberOfIterations):
 	#print >>outfile, "loop number", loopno
@@ -720,8 +722,8 @@ for loopno in range (NumberOfIterations):
 		(split_count, merger_count) = this_word.CompareAltParse(split_count, merger_count)
 
 	if split_count + merger_count > 0:
-		print >>outfile2, "%4s" %loopno, " ", split_count, merger_count
-		print "%4s" %loopno, " ", split_count, merger_count
+		print("%4s" %loopno, " ", split_count, merger_count, file=outfile2)
+		print("%4s" %loopno, " ", split_count, merger_count)
 
 	# recalculate morpheme frequencies & number of morphemes
 	morphemes = RecountMorphemes(WordObjectList)	 
@@ -741,11 +743,11 @@ for loopno in range (NumberOfIterations):
  
 		# first: print ALL words, with their analysis.
  		#print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
- 		print >>outfile1, "----------------------------------------\nLoop number:", loopno, "\n"
+		print("----------------------------------------\nLoop number:", loopno, "\n", file=outfile1)
 		#PrintAllWords(WordObjectList,outfile1,loopno)             # outfile1 is "word_list.txt"
 		PrintAllWords_textonly(WordObjectList,outfile1,loopno)     # makes it easier to see parse diffs   audrey  2015_12_21
 		threshold = 0
-		print >>outfile, "----------------------------------------\nLoop number:", loopno, "\n"
+		print("----------------------------------------\nLoop number:", loopno, "\n", file=outfile)
 		PrintTopMorphemes(WordObjectList, outfile,threshold)   # outfile is "gibbs_pieces.txt"
 		
 
@@ -758,18 +760,18 @@ outfile.close()
 
 CommandList=list()
 while (True):
-  command = raw_input("Enter word:")
-  CommandList.append(command)
-  #command_words = command.split()
-  if len(command)==0:
-	print "enter a word."
-	continue
+	command = input("Enter word:")
+	CommandList.append(command)
+	#command_words = command.split()
+	if len(command)==0:
+		print("enter a word.")
+		continue
 
-  if command =="exit"  :
-    break
-  #ConsolePrint(command)
-  object_word = class_word(command)
-  object_word.TestUnbrokenWord(morphemes, totalmorphemecount)
+	if command =="exit"  :
+		break
+	#ConsolePrint(command)
+	object_word = class_word(command)
+	object_word.TestUnbrokenWord(morphemes, totalmorphemecount)
 
 
 
