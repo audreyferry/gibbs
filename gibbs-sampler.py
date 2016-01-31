@@ -1,21 +1,30 @@
 #!/usr/bin/env python3
+# LoopNumberAtWhichWeStartTracking = 20		# Will need this later in development
 
 import sys
 import os
 import random
 import math
+import json
+import jsonpickle
+import time
+import datetime
 g_encoding = "asci"  # "utf8"
-shift_counter = []
 
-random.seed(a=5)    # audrey  2015_12_09  #Note that integer seed is not affected by seed change in python3
 
 # PARAMETERS   # probably want shorter segments initially (so BREAKPROB higher than 0.1)
 BitsPerLetter = 5
 BREAKPROB     = 0.1		# 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
-DEFAULTCOUNT  = 1		# 0.5  # Used in GetCount()   tbd  2016_01_09
-PLOGCOEFF     = 10		# used in both GetSegmentCost() and EvaluateWordCost()
-						# expect redesign in future
+DEFAULTCOUNT  = 1		# 0.5  # Used in divide_charges_among_instances() and in get_plog()
+PLOGCOEFF     = 10		# used in get_plog_charge()
 
+NumberOfIterations = 25   # 160	 # 200	 # 400	
+ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
+print("Number of iterations =", NumberOfIterations)
+if ResumeLoopno > 0:
+	print("Resume processing starting at loopno =", ResumeLoopno)
+
+SaveState = False	# True
 
 ## ---------------------------------------------------------------------------------------##
 class Segment:   # think   <morpheme> for morphology,  <word-type> or dictionary entry for wordbreaking
@@ -79,6 +88,7 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 														# Use the document function compute_parsedline_cost() (former EvaluateWordParse)
 														# to obtain (and if desired display) line cost information.
 
+		self.count_list					= []		# List of segment counts, in proper order.
 		self.phonocost_portion_list 	= []		# List per segment of phonocost_portion, in proper order. Similarly for other list variables.
 		self.ordercost_portion_list     = []		# The lists are used to arrange segment information attractively for display.
 		self.inclusioncost_portion_list = []		# Are they useful to retain? Should they be in a separate Display class?
@@ -94,18 +104,18 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 																					
 
 	def displaytextonly(self, outfile):
-		FormatString1 = "%20s"
-		print(self.unbroken_text, " breaks:",  self.breaks, file=outfile)
-		print("  pieces:", end=' ', file=outfile)				# FIX SPACING?	 
+		print(self.unbroken_text, "    breaks:",  self.breaks, file=outfile)
+		print("     pieces:", end=' ', file=outfile)				# FIX SPACING?	 
 		for n in range(1,len(self.breaks)):
 			print(self.getpiece(n), "", end=' ', file=outfile)	# note the comma for continuation
 		print(file=outfile)
-	
+
 
 	def display(self, outfile):
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
 		FormatString3 = "%8s"
+		FormatString4 = "%8d"
 
 		print("\n", self.unbroken_text, "breaks:",  self.breaks, file=outfile)		
 		print(FormatString1 %("pieces:"), end=' ', file=outfile)   # FIX SPACING?		 
@@ -113,6 +123,10 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 			print(FormatString3 %(self.getpiece(n)), end=' ', file=outfile)
 		print(file=outfile)
 
+		print(FormatString1 %("count:"), end=' ', file=outfile)	
+		for item in self.count_list:
+			print(FormatString4 %(item), end=' ', file=outfile)
+		print(file=outfile)
 		print(FormatString1 %("plog:"), end=' ', file=outfile)	
 		for item in self.plog_list:
 			print(FormatString2 %(item), end=' ', file=outfile)
@@ -148,6 +162,7 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
 		FormatString3 = "%8s"		 
+		FormatString4 = "%8d"		 
 
 		print(self.unbroken_text, "breaks", self.breaks)
 		
@@ -156,6 +171,10 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 			print(FormatString3 %(self.getpiece(n)), end=' ')
 		print() 
 
+		print(FormatString1 %("count:"), end=' ')	
+		for item in self.count_list:
+			print(FormatString4 %(item), end=' ')
+		print()
 		print(FormatString1 %("plog:"), end=' ')	
 		for item in self.plog_list:
 			print(FormatString2 %(item), end=' ')
@@ -180,7 +199,7 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		print() 
 
 		logfacword = self.piecesorder_cost
-		print(FormatString1 %("log (num_pieces!)!:"), end=' ')
+		print(FormatString1 %("log (num_pieces!):"), end=' ')
 		print(FormatString2 %( logfacword ), end=' ')
 		print() 
 		print(FormatString1 %("Total:"), end=' ')
@@ -211,7 +230,8 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.merger_count         		= 0
 		self.split_merger_history 		= []
 		self.other_statistics     		= 0.0			# What should be measured?
-
+		self.random_state				= None			# save state of random number generator in this spot
+														# so that it will be preserved by pickling
 
 
 	def print_parsed_lines(self, outfile):
@@ -230,9 +250,10 @@ class Document:	 #  <dx1 file>    <corpus>
 		reduced_dictionary = {}
 		for this_piece, this_segment in self.segment_object_dictionary.items():
 			reduced_dictionary[this_piece] = this_segment.count
-		countslist = sorted(reduced_dictionary.items(), key = lambda x:x[1], reverse=True)
-		
-		print("Dictionary:\n", file=outfile)
+		countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetic
+
+		print("\ntotalsegmentcount =", self.totalsegmentcount, file=outfile)	
+		print("\n=== Dictionary ===", file=outfile)
 		for n in range(len(countslist)):
 			print(n, countslist[n][0], countslist[n][1], file=outfile)
 		
@@ -449,6 +470,7 @@ class Document:	 #  <dx1 file>    <corpus>
 			line.total_cost += piece_cost
 		
 			# THESE LIST VARIABLES EXIST FOR DISPLAY ONLY  [expect changes if class structure is reworked]
+			line.count_list.append(this_segment.count)
 			line.plog_list.append(this_segment.get_plog_charge(self.totalsegmentcount))  #(PLOGCOEFF * this_instance.plog)
 			line.phonocost_portion_list.append(this_segment.phonocost_portion)	
 			line.ordercost_portion_list.append(this_segment.ordercost_portion)	
@@ -491,11 +513,51 @@ class Document:	 #  <dx1 file>    <corpus>
 ##		End of class Document:
 ## ---------------------------------------------------------------------------------------#
 
+
+def	save_state_to_file(loopno, pkl_outfile_name, document_object):
+	if g_encoding == "utf8":
+		pkl_outfile = codecs.open(pkl_outfile_name, encoding =  "utf-8", mode = 'w',)
+	else:
+		pkl_outfile = open(pkl_outfile_name, mode='w')
+
+	# Header for jsonpickle outfile
+	i = datetime.datetime.now()
+	print("# Date = " + i.strftime("%Y_%m_%d"), file=pkl_outfile)
+	print("# Time = " + i.strftime("%H_%M"), file=pkl_outfile)
+	print(file=pkl_outfile)
+
+	print("#----------------------------------------\n# Loop number:", loopno, file=pkl_outfile)
+	print("#----------------------------------------", file=pkl_outfile)	
+	print("serializing...")
+	serialstr = jsonpickle.encode(document_object)
+	print("printing serialization to file...")
+	print(serialstr, file=pkl_outfile)
+	
+	pkl_outfile.close()
+
+
+def load_state_from_file(pkl_infile_name):
+	if g_encoding == "utf8":
+		pkl_infile = codecs.open(pkl_infile_name, encoding = 'utf-8')
+	else:
+		pkl_infile = open(pkl_infile_name) 
+
+	print("Loading saved state...")
+	filelines = pkl_infile.readlines()
+	serialstr = filelines[-1]
+	#print(serialstr[0:40])
+	document = jsonpickle.decode(serialstr)
+
+	pkl_infile.close()
+	return document
+
+
 #----------------------------------------------------------------------------------#
 # this is not currently being used: 
 # #def ShiftBreak (word, thiswordbreaks, shiftamount, outfile, totalmorphemecount):
 # Code for this fuction is available in earlier versions in the git repository.
 #----------------------------------------------------------------------------------#
+
 
 
 #--------------------------------------------------------------------##
@@ -504,7 +566,7 @@ class Document:	 #  <dx1 file>    <corpus>
 #--------------------------------------------------------------------##
 
 #---------------------------------------------------------#
-#	1. Set up files for input and output
+#	0. Set up files for input and output
 #---------------------------------------------------------#
 
 # organize files like this or change the paths here for input
@@ -540,59 +602,64 @@ else:
 	outfile = open(outfilename,mode='w') 
 	outfile1 = open(outfilename1,mode='w') 
 	outfile2 = open(outfilename2,mode='w') 
-
- 
+	
+	
+if ResumeLoopno > 0:	
 #---------------------------------------------------------#
-#	2. Input
+#	Load state to resume processing	
 #---------------------------------------------------------#
-# Once jsonpickle is set up,
-# loading from a saved state (to resume processing)
-# will be an alternatives to sections 2 and 3.
+	this_document = load_state_from_file("jsonpickle_infile.txt")		# ln -s  <relative_or_absolute_filename>  jsonpickle_infile.txt
+	random.setstate(this_document.random_state)							# restores state of random number generator
+ 	
+else:
+#---------------------------------------------------------#
+#	1. Input
+#---------------------------------------------------------#
+	# Once jsonpickle is set up,
+	# loading from a saved state (to resume processing)
+	# will be an alternatives to sections 1 and 2.
 
-this_document = Document()	
-# THIS PART IS FOR CORPUS INPUT
-textline_list = infile.readlines()
-for textline in textline_list:
-	this_document.line_object_list.append(Line(textline))
-print("There are ", len(this_document.line_object_list), "lines in this document")
+	this_document = Document()	
+	random.seed(a=5)    # audrey  2015_12_09  #Note that integer seed is not affected by seed change in python3
 
-# THIS PART IS FOR READING FROM dx1 FILE	[not yet reworked for new class structure  2016_01_21]
-#filelines= infile.readlines()
-#WordCounts={}
+	# THIS PART IS FOR CORPUS INPUT
+	textline_list = infile.readlines()
+	for textline in textline_list:
+		this_document.line_object_list.append(Line(textline))
+	print("There are ", len(this_document.line_object_list), "lines in this document")
 
-## add counts for all words in dictionary
-#for line in filelines:
-#	pieces = line.split(' ')
-#	word=pieces[0] # the first column in the dx1 file is the actual word 
-#	word = ''.join([c.lower() for c in word if c not in "()1234567890"])
-#	if word in WordCounts:
-#		WordCounts[word] += 1
-#	else:
-#		WordCounts[word]= 1
+	# THIS PART IS FOR READING FROM dx1 FILE	[not yet reworked for new class structure  2016_01_21]
+	#filelines= infile.readlines()
+	#WordCounts={}
 
-#print "We read", len(WordCounts), "words." 
-# #saves words also in list format, then sorts alphabetically (in case they're not already?)
-#wordlist = WordCounts.keys()
-#wordlist.sort()
+	## add counts for all words in dictionary
+	#for line in filelines:
+	#	pieces = line.split(' ')
+	#	word=pieces[0] # the first column in the dx1 file is the actual word 
+	#	word = ''.join([c.lower() for c in word if c not in "()1234567890"])
+	#	if word in WordCounts:
+	#		WordCounts[word] += 1
+	#	else:
+	#		WordCounts[word]= 1
+
+	#print "We read", len(WordCounts), "words." 
+	# #saves words also in list format, then sorts alphabetically (in case they're not already?)
+	#wordlist = WordCounts.keys()
+	#wordlist.sort()
 
 
 #---------------------------------------------------------#
-#	3. Random splitting of words
+#	2. Random splitting of words
 #---------------------------------------------------------# 
-this_document.initial_segmentation()
-print("End of initial randomization.") 
-
+	this_document.initial_segmentation()
+	print("End of initial randomization.") 
 
 
 #----------------------------------------------------------#
-#	4. Main loop
+#	3. Main loop
 #----------------------------------------------------------#
-NumberOfIterations = 25   # 160	 # 200	 # 400	
-print("Number of iterations: ", NumberOfIterations)
-LoopNumberAtWhichWeStartTracking = 20
-
 # Markov chain based on sampling individual components (i.e., distribution of individual segment conditioned on the other segments)
-for loopno in range (NumberOfIterations):
+for loopno in range (ResumeLoopno, NumberOfIterations):
 
 	this_document.split_count = 0
 	this_document.merger_count = 0
@@ -628,10 +695,15 @@ for loopno in range (NumberOfIterations):
 		print("----------------------------------------", file=outfile)			# filename "gibbs_pieces.txt"			
 		this_document.print_segment_counts(outfile)
 		
+		if SaveState == True:
+			this_document.random_state = random.getstate()							# saves state of random number generator
+			save_state_to_file(loopno, outfolder + "jsonpickle_" + str(loopno) + ".txt", this_document)
+
 # CLOSE OUTPUT FILES SO THAT INFORMATION DERIVED BY PROGRAM CAN BE VIEWED DURING INTERACTIVE QUERIES
+
 outfile2.close()
 outfile1.close()
-outfile.close() 
+outfile.close()
 
 
 while (True):
