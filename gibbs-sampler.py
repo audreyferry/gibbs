@@ -9,22 +9,28 @@ import json
 import jsonpickle
 import time
 import datetime
+import copy
 g_encoding = "asci"  # "utf8"
 
 
 # PARAMETERS   # probably want shorter segments initially (so BREAKPROB higher than 0.1)
 BitsPerLetter = 5
-BREAKPROB     = 0.1		# 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
+BREAKPROB     = 0.3		# 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
 DEFAULTCOUNT  = 1		# 0.5  # Used in divide_charges_among_instances() and in get_plog()
-PLOGCOEFF     = 10		# used in get_plog_charge()
+PLOGCOEFF     = 3		# used in get_plog_charge()
+PENALTYFACTOR = 1.5		# extra factor in get_plog_charge() for "new" segment (not in dictionary)	1.5  2.0  1.25
+REBASE_PERIOD = 10		# number of iterations between calls to rebase()
+FLOAT_INF = float("inf")
 
-NumberOfIterations = 25   # 160	 # 200	 # 400	
+
+NumberOfIterations = 22   # 160	 # 200	 # 400	
 ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
 print("Number of iterations =", NumberOfIterations)
 if ResumeLoopno > 0:
 	print("Resume processing starting at loopno =", ResumeLoopno)
 
 SaveState = False	# True
+
 
 ## ---------------------------------------------------------------------------------------##
 class Segment:   # think   <morpheme> for morphology,  <word-type> or dictionary entry for wordbreaking
@@ -65,9 +71,13 @@ class Segment:   # think   <morpheme> for morphology,  <word-type> or dictionary
 			return math.log( (totalsegmentcount / float(DEFAULTCOUNT)), 2 )
 
 				
+#	def get_plog_charge(self, totalsegmentcount):
+#		return PLOGCOEFF * self.get_plog(totalsegmentcount)
 	def get_plog_charge(self, totalsegmentcount):
-		return PLOGCOEFF * self.get_plog(totalsegmentcount)
-
+		if self.count != 0:
+			return PLOGCOEFF * self.get_plog(totalsegmentcount)
+		else:
+			return PENALTYFACTOR * PLOGCOEFF * self.get_plog(totalsegmentcount)
 		
 	def get_instance_cost(self, totalsegmentcount):
 		return self.get_plog_charge(totalsegmentcount) + self.sum_dictcosts_portion
@@ -85,8 +95,10 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		self.piecesorder_cost			= 0.0
 		self.total_cost 		        = 0.0		# Since only local information is needed for parsing decisions,
 														# total_cost for the line and the lists below are not maintained at intermediate stages.
-														# Use the document function compute_parsedline_cost() (former EvaluateWordParse)
-														# to obtain (and if desired display) line cost information.
+														# Use the document function compute_brokenline_cost() (former EvaluateWordParse)
+														# to obtain line cost information.
+														# Use the document function populate_line_displaylists() to fill the lists below 
+														# in order to display cost details by segment and cost component.
 
 		self.count_list					= []		# List of segment counts, in proper order.
 		self.phonocost_portion_list 	= []		# List per segment of phonocost_portion, in proper order. Similarly for other list variables.
@@ -102,16 +114,38 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		return self.unbroken_text[self.breaks[pieceno-1]:self.breaks[pieceno]]		# note that getpiece(k) returns pieces[k-1]
 																					# for example, getpiece(1) returns pieces[0]
 																					
+	# EXAMPLE FOR NEXT TWO FUNCTIONS  
+	# line.unbroken_text = abcdefghij
+	# line.breaks = [0, 2, 5, 7, 10]
+	# line.pieces = [ab, cde, fg, hij]
 
+	def populate_pieces_from_breaks(self):
+		#self.pieces = []
+		#for n in range(len(self.breaks)-1):
+		#	self.pieces.append(self.unbroken_text[self.breaks[n]:self.breaks[n+1]])
+		self.pieces = []
+		start = 0
+		for brk in self.breaks[1:]:
+			self.pieces.append(self.unbroken_text[start:brk])
+			start = brk
+		
+	def populate_breaks_from_pieces(self):
+		self.breaks = [0]
+		for piece in self.pieces:
+			self.breaks.append(self.breaks[-1] + len(piece))
+			
+			
 	def displaytextonly(self, outfile):
 		print(self.unbroken_text, "    breaks:",  self.breaks, file=outfile)
 		print("     pieces:", end=' ', file=outfile)				# FIX SPACING?	 
-		for n in range(1,len(self.breaks)):
-			print(self.getpiece(n), "", end=' ', file=outfile)	# note the comma for continuation
+		#for n in range(1,len(self.breaks)):
+		#	print(self.getpiece(n), "", end=' ', file=outfile)
+		for piece in self.pieces:
+			print(piece,  "", end=' ', file=outfile)
 		print(file=outfile)
 
 
-	def display(self, outfile):
+	def display_detail(self, outfile):
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
 		FormatString3 = "%8s"
@@ -119,8 +153,10 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 
 		print("\n", self.unbroken_text, "breaks:",  self.breaks, file=outfile)		
 		print(FormatString1 %("pieces:"), end=' ', file=outfile)   # FIX SPACING?		 
-		for n in range(1,len(self.breaks)):
-			print(FormatString3 %(self.getpiece(n)), end=' ', file=outfile)
+		#for n in range(1,len(self.breaks)):
+		#	print(FormatString3 %(self.getpiece(n)), end=' ', file=outfile)
+		for piece in self.pieces:
+			print(FormatString3 % piece, end=' ', file=outfile)
 		print(file=outfile)
 
 		print(FormatString1 %("count:"), end=' ', file=outfile)	
@@ -158,7 +194,17 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		print(FormatString2 %( self.total_cost  ), file=outfile)
 
 
-	def displaytoscreen(self):
+	def displaytoscreen_textonly(self):
+		print(self.unbroken_text, "    breaks:",  self.breaks)
+		print("     pieces:", end=' ')				# FIX SPACING?	 
+		#for n in range(1,len(self.breaks)):
+		#	print(self.getpiece(n), "", end=' ', file=outfile)
+		for piece in self.pieces:
+			print(piece,  "", end=' ')
+		print()
+
+
+	def displaytoscreen_detail(self):
 		FormatString1 = "%20s"
 		FormatString2 = "%8.1f"
 		FormatString3 = "%8s"		 
@@ -167,8 +213,10 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		print(self.unbroken_text, "breaks", self.breaks)
 		
 		print(FormatString1 %("pieces:"), end=' ')		 
-		for n in range(1,len(self.breaks)):
-			print(FormatString3 %(self.getpiece(n)), end=' ')
+		#for n in range(1,len(self.breaks)):
+		#	print(FormatString3 %(self.getpiece(n)), end=' ')
+		for piece in self.pieces:
+			print(FormatString3 % piece, end=' ')
 		print() 
 
 		print(FormatString1 %("count:"), end=' ')	
@@ -226,22 +274,26 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.line_object_list     		= []			# list of Line objects   (former WordObjectList)
 		self.segment_object_dictionary	= {}			# dictionary  key: piece   value: segment object
 		self.totalsegmentcount   		= 0
-		self.split_count          		= 0
 		self.merger_count         		= 0
+		self.split_count          		= 0
+		self.merger_newsegment_count	= 0				# these 3 added on Feb. 2, 2016
+		self.split_1newsegment_count	= 0
+		self.split_2newsegments_count	= 0
 		self.split_merger_history 		= []
 		self.other_statistics     		= 0.0			# What should be measured?
 		self.random_state				= None			# save state of random number generator in this spot
 														# so that it will be preserved by pickling
 
 
-	def print_parsed_lines(self, outfile):
+	def showlines_detail(self, outfile):
 		for line in self.line_object_list:
-			line.display(outfile)			# displays text along with total line cost, detailed by segment and component
+			self.populate_line_displaylists(line)
+			line.display_detail(outfile)			# displays text followed by line cost, detailed by segment and component
 
-	def print_parsed_lines_textonly(self, outfile):
+	def showlines_textonly(self, outfile):
 		for line in self.line_object_list:
 			line.displaytextonly(outfile)	# displays only unbroken line and its parse
-	
+			print("       cost: %7.3f\n" % line.total_cost, end=' ', file=outfile)	
 	
 	def print_segment_counts(self, outfile):
 		# Additional information is stored in the segment_object_dictionary,
@@ -250,7 +302,9 @@ class Document:	 #  <dx1 file>    <corpus>
 		reduced_dictionary = {}
 		for this_piece, this_segment in self.segment_object_dictionary.items():
 			reduced_dictionary[this_piece] = this_segment.count
-		countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetic
+		#countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetical
+		countslist = sorted(reduced_dictionary.items(), key = lambda x:x[0])						#secondary sort is alphabetical (ascending)
+		countslist = sorted(countslist, key = lambda x:x[1], reverse=True)							#primary sort is by count (descending)
 
 		print("\ntotalsegmentcount =", self.totalsegmentcount, file=outfile)	
 		print("\n=== Dictionary ===", file=outfile)
@@ -325,6 +379,7 @@ class Document:	 #  <dx1 file>    <corpus>
 																# Index runs from 0 through 99. Don't pick 0. 
 																# But OK to pick 99. That splits off the last character of the line.
 		breakpoint, breakindex = line.break_cover(point)
+
 	
 		# Splitting:
 		if point < breakpoint:												# point may be any character within its piece except the first
@@ -369,6 +424,10 @@ class Document:	 #  <dx1 file>    <corpus>
 				line.pieces.insert(breakindex, rightpiece)
 				 
 				# UPDATE GLOBAL COUNTS
+				if left_segment.count == 0 and right_segment.count == 0:
+					self.split_2newsegments_count += 1
+				elif left_segment.count == 0 or right_segment.count == 0:
+					self.split_1newsegment_count += 1
 				self.split_count += 1
 				self.totalsegmentcount += 1
 				
@@ -403,6 +462,7 @@ class Document:	 #  <dx1 file>    <corpus>
 			# local contribution as presently configured
 			leftpiece  = line.unbroken_text[leftbreak:point]				# leftpiece  == line.pieces[breakindex-1]
 			rightpiece = line.unbroken_text[point:rightbreak]				# rightpiece == line.pieces[breakindex]
+			
 			if leftpiece not in self.segment_object_dictionary:
 				print("Error in CompareAltParse: leftpiece (= ", leftpiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
 				sys.exit()
@@ -432,6 +492,8 @@ class Document:	 #  <dx1 file>    <corpus>
 				line.breaks.pop(breakindex)
 				
 				# UPDATE GLOBAL COUNTS
+				if merged_segment.count == 0:
+					self.merger_newsegment_count += 1
 				self.merger_count += 1
 				self.totalsegmentcount -= 1
 				
@@ -458,7 +520,106 @@ class Document:	 #  <dx1 file>    <corpus>
 				
 
 
-	def compute_parsedline_cost(self, line):	
+	def lrparse_line(self, line, longest_dictionary_entry_length, outfile  ):				# from wordbreaker.py: ParseWord()   Needs different name.  outfile is for verbose (mostly --last part always prints).
+         
+        # <---- outerscan range----------------------------------------------------> #
+        #              starting point----^                           ^---outerscan
+        #                                <--------chunkstart range-->
+		#                         chunkstart---^
+        #                                      <------chunk--------->
+
+
+		verboseflag = False	 # True
+		if verboseflag: print("\n\n", line.unbroken_text, file=outfile)
+		if verboseflag:	print("Outer\tInner", file=outfile)
+		if verboseflag:	print("scan:\tscan:\tChunk\tFound?", file=outfile)		# column headers
+
+		linelength = len(line.unbroken_text)
+
+		parse2here=dict()			# key is an int < linelength, value is a list of pieces
+		parse2here[0] = []			# empty list
+
+		bestcost2here = dict()		# key is an int < linelength, value is a sum of segment costs + ordercost for that many segments
+		bestcost2here[0] = 0
+
+		for outerscan in range(1,linelength+1):   
+			# Note: at this point in the computation, 
+        	# the values of parse2here[x] and bestcost2here[x] are known for all x < outerscan.  
+			# The purpose of this pass is to calculate these values for x = outerscan.
+
+			parse2here[outerscan] = list()
+
+			# CONSIDER CHUNK TO EXTEND A SHORTER PREVIOUSLY-OBTAINED PARSE UP TO CURRENT VALUE OF outerscan.
+			# CHECK ALL POSSIBLE CHUNK START POINTS. KEEP TRACK TO FIND THE PARSE WITH LOWEST COST.
+			startingpoint = max(0, outerscan - longest_dictionary_entry_length)
+			howmanyspaces = -1					# This variable is for formatting. 
+			chosen_cost = FLOAT_INF				# MUST BE SURE TOTAL_COST IS POPULATED  OOPS - use FLOAT_INF instead
+			chosen_chunk = line.unbroken_text
+			chosen_chunkstart = startingpoint	# MIGHT BE MORE CONSISTENT TO STEP BACKWARDS  set to outerscan-1 ??
+			
+ 			# ALL CHUNKS HAVE SAME RIGHT ENDPOINT (outerscan-1)
+            # START WITH FIRST POSSIBLE CHUNK (the chunk with left endpoint at startingpoint)
+			# LOOP THROUGH SUCCEEDING CHUNK START POINTS
+            # WOULD BACKWARDS BE CLEARER? INSTEAD OF startingpoint, CALL IT limitpoint?
+			for chunkstart in range(startingpoint, outerscan):
+				chunk = line.unbroken_text[chunkstart: outerscan]
+				if verboseflag: print("\n %3s\t%3s  " % (outerscan, chunkstart), end=" ", file=outfile)
+
+				if chunk not in self.segment_object_dictionary:
+					continue
+
+				else:
+					howmanyspaces +=1
+					if verboseflag: 
+						for x in range(howmanyspaces):
+							print(" ", end="", file=outfile)
+					if verboseflag:	print("  %s"% chunk, end=" ", file=outfile)
+					
+					if verboseflag: print("   %5s" % "Yes.", end=" ", file=outfile)
+					chunk_segment = self.fetch_plogged_segment_from_dictionary(chunk)
+					chunk_cost = chunk_segment.get_instance_cost(self.totalsegmentcount)
+				
+					testcost = bestcost2here[chunkstart] + chunk_cost + \
+							   math.log( 1 + len(parse2here[chunkstart]), 2 )
+							   #math.log( math.factorial( 1 + len(parse2here[chunkstart]) ), 2)
+					#print(" %7.3f bits" % (testcost), "= %7.3f" % (bestcost2here[chunkstart]), "+ %7.3f" % (chunk_cost), "+ %7.3f" % (math.log( math.factorial( 1 + len(parse2here[chunkstart]) ), 2)) )
+					if verboseflag: print(" %7.3f bits" % (testcost), end=" ", file=outfile)				
+					if verboseflag: print("   %s" % parse2here[chunkstart], end=" ", file=outfile)	# put this at end of line due to spacing
+				
+					if testcost < chosen_cost:
+						chosen_cost = testcost
+						chosen_chunk = chunk
+						chosen_chunkstart = chunkstart
+					
+			bestcost2here[outerscan] = chosen_cost
+			
+			parse2here[outerscan] = list(parse2here[chosen_chunkstart])		# makes a copy
+			parse2here[outerscan].append(chosen_chunk)
+
+			#if verboseflag: print("\n\t\t\t\t\t\t\t\t\tchosen:", chosen_chunk, end=" ", file=outfile)
+			if verboseflag: print("\nchosen:", chosen_chunk, end=" ", file=outfile)
+			if verboseflag: print("  parse [0, %d)" % outerscan, "= %s " % parse2here[outerscan], end=" ", file=outfile)
+			if verboseflag: print("\n", file=outfile)
+		
+
+		parsed_line = parse2here[linelength]		# IS IT linelength-1  OR  linelength?  ANSWER: linelength
+		bitcost = bestcost2here[linelength]
+
+		print("\n%7.3f\t" % line.total_cost, end="", file=outfile)		# How to get this right-aligned?
+		for piece in line.pieces:
+			print(" %s" % piece, end="", file=outfile)
+		#print("\n", file=outfile)
+		
+		print("%7.3f\t" % bitcost, end="", file=outfile)				# Here also.        
+		for chunk in parsed_line:
+			print(" %s" % chunk, end="", file=outfile)
+		print("\n", file=outfile)
+
+
+		return (parsed_line, bitcost)
+
+
+	def compute_brokenline_cost(self, line):	
 		line.total_cost = 0.0							# should already be set by __init__
 		for piece in line.pieces:
 			if piece in self.segment_object_dictionary:
@@ -468,7 +629,28 @@ class Document:	 #  <dx1 file>    <corpus>
 				
 			piece_cost = this_segment.get_instance_cost(self.totalsegmentcount)
 			line.total_cost += piece_cost
-		
+
+		line.piecesorder_cost =  math.log (math.factorial(len(line.pieces)), 2)
+		line.total_cost += line.piecesorder_cost
+
+
+
+	def populate_line_displaylists(self, line):	
+		self.count_list					= []		# List of segment counts, in proper order.
+		self.phonocost_portion_list 	= []		# List per segment of phonocost_portion, in proper order. Similarly for other list variables.
+		self.ordercost_portion_list     = []		# The lists are used to arrange segment information attractively for display.
+		self.inclusioncost_portion_list = []		# Are they useful to retain? Should they be in a separate Display class?
+		self.plog_list 		            = []
+		self.subtotal_list              = []		# list per segment of following quantity: 
+		for piece in line.pieces:
+			if piece in self.segment_object_dictionary:
+				this_segment = self.fetch_plogged_segment_from_dictionary(piece)
+			else:
+				this_segment = self.new_segment_object(piece, 0)
+
+				
+			piece_cost = this_segment.get_instance_cost(self.totalsegmentcount)
+				
 			# THESE LIST VARIABLES EXIST FOR DISPLAY ONLY  [expect changes if class structure is reworked]
 			line.count_list.append(this_segment.count)
 			line.plog_list.append(this_segment.get_plog_charge(self.totalsegmentcount))  #(PLOGCOEFF * this_instance.plog)
@@ -478,10 +660,54 @@ class Document:	 #  <dx1 file>    <corpus>
 			line.subtotal_list.append(piece_cost) 		
 
 
-		line.piecesorder_cost =  math.log (math.factorial(len(line.pieces)), 2)
-		line.total_cost += line.piecesorder_cost
-		return  
+	def rebase(self, verbose_outfile):
+		
+		# REPARSE
+		longest = 0
+		for piece in self.segment_object_dictionary:
+			if len(piece) > longest:
+				longest = len(piece)
+		print("longest_entry_length =", longest)
+		print("longest_entry_length =", longest, file=verbose_outfile)
+		
+		print("parsing...")
+		for ln in self.line_object_list:
+			(parsed_line, bitcost) = self.lrparse_line(ln, longest, verbose_outfile)
+			ln.pieces = list(parsed_line)		# copy
+			ln.populate_breaks_from_pieces()
+			#ln.total_cost = bitcost  [stored for comparison in RECOMPUTE section]
+			
 
+		# RECOUNT SEGMENTS
+		# rebuild the dictionary   IS THERE ANYTHING ELSE THAT NEEDS TO BE REINITED ????
+		print("updating segment counts in the dictionary...")
+		newdictionary = {}
+		self.totalsegmentcount = 0
+				
+		for ln in self.line_object_list:
+			for piece in ln.pieces:
+				self.totalsegmentcount += 1				# ALERT - for any item in or about to go into the dictionary,
+				if not piece in newdictionary:			# increment totalsegmentcount BEFORE populating its plog variable		  
+					newdictionary[piece] = self.new_segment_object(piece, 1)
+				else:
+					newdictionary[piece].count += 1
+		
+		# fill in the information that depends on the count	 
+		for sgmt in newdictionary.values():
+			sgmt.divide_charges_among_instances()
+			sgmt.get_plog(self.totalsegmentcount)
+			
+		self.segment_object_dictionary = copy.deepcopy(newdictionary)	
+
+
+		# RECOMPUTE
+		print("computing line costs...")
+		for ln in self.line_object_list:
+			for piece in ln.pieces:
+				assert(piece in self.segment_object_dictionary)		# there should be no "new" pieces
+			self.compute_brokenline_cost(ln)
+
+	
 
 	def test_unbroken_text(self, text):	
 		print("\npoint = 0 (i.e., unbroken text)")		
@@ -489,10 +715,11 @@ class Document:	 #  <dx1 file>    <corpus>
 		test_parse.breaks = [0, len(text)]
 		test_parse.pieces.append(text)
 
-		self.compute_parsedline_cost(test_parse)
+		self.compute_brokenline_cost(test_parse)
+		self.populate_line_displaylists(test_parse)
 		bestscore = test_parse.total_cost
 		bestlocation = 0
-		test_parse.displaytoscreen()
+		test_parse.displaytoscreen_detail()
 	
 		for point in range(1, len(text)):
 			print("\npoint =", point)
@@ -501,11 +728,12 @@ class Document:	 #  <dx1 file>    <corpus>
 			test_parse.pieces.append(text[0:point])
 			test_parse.pieces.append(text[point:])
 
-			self.compute_parsedline_cost(test_parse)
+			self.compute_brokenline_cost(test_parse)
+			self.populate_line_displaylists(test_parse)
 			if test_parse.total_cost < bestscore:
 				bestscore = test_parse.total_cost
 				bestlocation = point
-			test_parse.displaytoscreen()
+			test_parse.displaytoscreen_detail()
 
 		print("\nBest score = ", bestscore, "at point = ", bestlocation, "\n")    # FORMAT bestscore AS %8.1f
 
@@ -590,18 +818,22 @@ print("Data file: ", infilename)
 
 # organize files like this or change the paths here for output
 outfolder = '../data/'+ language + '/gibbs_wordbreaking/'
-outfilename = outfolder +  "gibbs_pieces.txt"
-outfilename1 = outfolder +  "word_list.txt"
-outfilename2 = outfolder +  "split_merge_counts.txt"
+outfilename_gibbspieces = outfolder +  "gibbs_pieces.txt"
+outfilename_corpuslines = outfolder +  "corpus_lines.txt"
+outfilename_splitmerge = outfolder +  "split_merge_counts.txt"
+outfilename_lrparse = outfolder + "left_right_parse.txt"
+
 if g_encoding == "utf8":
-	outfile = codecs.open(outfilename, encoding =  "utf-8", mode = 'w',)
-	outfile1 = codecs.open(outfilename1, encoding =  "utf-8", mode = 'w',)
-	outfile2 = codecs.open(outfilename2, encoding =  "utf-8", mode = 'w',)
+	outfile_gibbspieces = codecs.open(outfilename_gibbspieces, encoding =  "utf-8", mode = 'w',)
+	outfile_corpuslines = codecs.open(outfilename_corpuslines, encoding =  "utf-8", mode = 'w',)
+	outfile_splitmerge = codecs.open(outfilename_splitmerge, encoding =  "utf-8", mode = 'w',)
+	outfile_lrparse = codecs.open(outfilename_lrparse, encoding =  "utf-8", mode = 'w',)
 	print("yes utf8")
 else:
-	outfile = open(outfilename,mode='w') 
-	outfile1 = open(outfilename1,mode='w') 
-	outfile2 = open(outfilename2,mode='w') 
+	outfile_gibbspieces = open(outfilename_gibbspieces, mode='w') 
+	outfile_corpuslines = open(outfilename_corpuslines, mode='w') 
+	outfile_splitmerge = open(outfilename_splitmerge, mode='w') 
+	outfile_lrparse = open(outfilename_lrparse, mode='w')
 	
 	
 if ResumeLoopno > 0:	
@@ -651,6 +883,7 @@ else:
 #---------------------------------------------------------#
 #	2. Random splitting of words
 #---------------------------------------------------------# 
+
 	this_document.initial_segmentation()
 	print("End of initial randomization.") 
 
@@ -659,51 +892,65 @@ else:
 #	3. Main loop
 #----------------------------------------------------------#
 # Markov chain based on sampling individual components (i.e., distribution of individual segment conditioned on the other segments)
-for loopno in range (ResumeLoopno, NumberOfIterations):
 
-	this_document.split_count = 0
+for loopno in range (ResumeLoopno, NumberOfIterations):
+	this_document.split_count  = 0
 	this_document.merger_count = 0
-	
+	this_document.split_1newsegment_count  = 0
+	this_document.split_2newsegments_count = 0
+	this_document.merger_newsegment_count  = 0
+		
 	for line in this_document.line_object_list:
 		this_document.compare_alt_parse(line)
 
-	#if this_document.split_count + this_document.merger_count > 0:
 	if True:
-		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count, file=outfile2)
-		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count)
-	
+		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count,  " \t",
+		                          this_document.split_1newsegment_count, 
+		                          this_document.split_2newsegments_count, " ",
+		                          this_document.merger_newsegment_count,   file=outfile_splitmerge)
+		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count,  " \t",
+		                          this_document.split_1newsegment_count, 
+		                          this_document.split_2newsegments_count, " ",
+		                          this_document.merger_newsegment_count)
+		                          
 	
 	#-----------------------------#
 	#       output results 		  #	
 	#-----------------------------#
 	#if loopno == 0  or  loopno == 10 or loopno == 20 or  loopno == 100 or loopno == NumberOfIterations -1:
-	if loopno == NumberOfIterations -1:
-
-		for line in this_document.line_object_list:
+	
+	if ((loopno+1) % REBASE_PERIOD == 0) or (loopno == NumberOfIterations -1): 
+		for line in this_document.line_object_list: 
  			# computes cost for entire line using information recorded in line and segment objects; does not change parse.
 			for piece in line.pieces:
-				assert(piece in this_document.segment_object_dictionary)		# there should be no "new" pieces
-			this_document.compute_parsedline_cost(line)		
+				assert(piece in this_document.segment_object_dictionary)			# there should be no "new" pieces
+			this_document.compute_brokenline_cost(line)								# needed only for display on lrparse.txt, not for processing  		
 
+	if ((loopno+1) % REBASE_PERIOD == 0):
+		this_document.rebase(outfile_lrparse)		# reparse, recount, recompute	
+	
+	if loopno == NumberOfIterations -1:
+		print("----------------------------------------\nLoop number:", loopno, file=outfile_corpuslines)
+		print("----------------------------------------", file=outfile_corpuslines)
+		#this_document.showlines_detail(outfile1)									# displays text and also total line cost, detailed by segment and cost component
+		this_document.showlines_textonly(outfile_corpuslines)						# "textonly" makes it easier to see diffs during development
 
-		print("----------------------------------------\nLoop number:", loopno, file=outfile1)
-		print("----------------------------------------", file=outfile1)		# filename "word_list.txt"
-		#this_document.print_parsed_lines(outfile1)								# displays text and also total line cost, detailed by segment and cost component
-		this_document.print_parsed_lines_textonly(outfile1)						# "textonly" makes it easier to see diffs during development
-
-		print("----------------------------------------\nLoop number:", loopno, file=outfile)
-		print("----------------------------------------", file=outfile)			# filename "gibbs_pieces.txt"			
-		this_document.print_segment_counts(outfile)
+		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
+		print("----------------------------------------", file=outfile_gibbspieces)			
+		this_document.print_segment_counts(outfile_gibbspieces)
 		
 		if SaveState == True:
 			this_document.random_state = random.getstate()							# saves state of random number generator
 			save_state_to_file(loopno, outfolder + "jsonpickle_" + str(loopno) + ".txt", this_document)
+			
+			
 
 # CLOSE OUTPUT FILES SO THAT INFORMATION DERIVED BY PROGRAM CAN BE VIEWED DURING INTERACTIVE QUERIES
 
-outfile2.close()
-outfile1.close()
-outfile.close()
+outfile_lrparse.close()
+outfile_splitmerge.close()
+outfile_corpuslines.close()
+outfile_gibbspieces.close()
 
 
 while (True):
