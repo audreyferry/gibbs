@@ -23,7 +23,7 @@ REBASE_PERIOD = 10		# number of iterations between calls to rebase()
 FLOAT_INF = float("inf")
 
 
-NumberOfIterations = 22   # 160	 # 200	 # 400	
+NumberOfIterations = 15   # 160	 # 200	 # 400	
 ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
 print("Number of iterations =", NumberOfIterations)
 if ResumeLoopno > 0:
@@ -88,7 +88,6 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 ## ---------------------------------------------------------------------------------------##
 	def __init__(self, unbroken_text):
 		self.unbroken_text              = unbroken_text	# (former self.word)
-		self.true_text                  = []		# depends whether we derive unbroken from true or just read unbroken directly
 		self.breaks                     = []
 		self.pieces                     = []		# list of strings  <morphs>   <words>   NOT segment objects 
 
@@ -108,6 +107,8 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		self.subtotal_list              = []		# list per segment of following quantity: 
 													# ordercost_portion + phonocost_portion + inclusioncost_portion + plog
 		
+		self.true_text					= []
+		self.true_breaks				= []
 				
 
 	def getpiece(self, pieceno):
@@ -136,7 +137,8 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 			
 			
 	def displaytextonly(self, outfile):
-		print(self.unbroken_text, "    breaks:",  self.breaks, file=outfile)
+		print(self.unbroken_text, file=outfile)
+		print("     breaks:",  self.breaks, file=outfile)
 		print("     pieces:", end=' ', file=outfile)				# FIX SPACING?	 
 		#for n in range(1,len(self.breaks)):
 		#	print(self.getpiece(n), "", end=' ', file=outfile)
@@ -151,7 +153,8 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		FormatString3 = "%8s"
 		FormatString4 = "%8d"
 
-		print("\n", self.unbroken_text, "breaks:",  self.breaks, file=outfile)		
+		print("\n", self.unbroken_text, file=outfile)
+		print("breaks:",  self.breaks, file=outfile)		
 		print(FormatString1 %("pieces:"), end=' ', file=outfile)   # FIX SPACING?		 
 		#for n in range(1,len(self.breaks)):
 		#	print(FormatString3 %(self.getpiece(n)), end=' ', file=outfile)
@@ -195,7 +198,8 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 
 
 	def displaytoscreen_textonly(self):
-		print(self.unbroken_text, "    breaks:",  self.breaks)
+		print(self.unbroken_text)
+		print("     breaks:",  self.breaks)
 		print("     pieces:", end=' ')				# FIX SPACING?	 
 		#for n in range(1,len(self.breaks)):
 		#	print(self.getpiece(n), "", end=' ', file=outfile)
@@ -210,8 +214,9 @@ class Line:     # a bounded expression  <word in dx1 file>    <line in corpus>
 		FormatString3 = "%8s"		 
 		FormatString4 = "%8d"		 
 
-		print(self.unbroken_text, "breaks", self.breaks)
-		
+		print(self.unbroken_text)
+		print("breaks", self.breaks)		
+
 		print(FormatString1 %("pieces:"), end=' ')		 
 		#for n in range(1,len(self.breaks)):
 		#	print(FormatString3 %(self.getpiece(n)), end=' ')
@@ -280,22 +285,31 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.split_1newsegment_count	= 0
 		self.split_2newsegments_count	= 0
 		self.split_merger_history 		= []
+		self.break_precision			= 0.0			# these 6 added on Feb. 21, 2016
+		self.break_recall				= 0.0
+		self.token_precision			= 0.0
+		self.token_recall				= 0.0
+		self.dictionary_precision		= 0.0
+		self.dictionary_recall			= 0.0
 		self.other_statistics     		= 0.0			# What should be measured?
 		self.random_state				= None			# save state of random number generator in this spot
 														# so that it will be preserved by pickling
+		self.true_segment_dictionary	= {}
+		self.true_totalsegmentcount		= 0
+		
+		
 
-
-	def showlines_detail(self, outfile):
+	def output_corpuslines_detail(self, outfile):
 		for line in self.line_object_list:
 			self.populate_line_displaylists(line)
 			line.display_detail(outfile)			# displays text followed by line cost, detailed by segment and component
 
-	def showlines_textonly(self, outfile):
+	def output_corpuslines_textonly(self, outfile):
 		for line in self.line_object_list:
 			line.displaytextonly(outfile)	# displays only unbroken line and its parse
 			print("       cost: %7.3f\n" % line.total_cost, end=' ', file=outfile)	
 	
-	def print_segment_counts(self, outfile):
+	def output_gibbspieces(self, outfile):
 		# Additional information is stored in the segment_object_dictionary,
 		# but only count will be displayed on the outfile.
 		
@@ -529,8 +543,9 @@ class Document:	 #  <dx1 file>    <corpus>
         #                                      <------chunk--------->
 
 
-		verboseflag = False	 # True
-		if verboseflag: print("\n\n", line.unbroken_text, file=outfile)
+		verboseflag = True	# False	 # True
+		if verboseflag: print("\n", file=outfile)
+		if verboseflag: print(line.unbroken_text, file=outfile)
 		if verboseflag:	print("Outer\tInner", file=outfile)
 		if verboseflag:	print("scan:\tscan:\tChunk\tFound?", file=outfile)		# column headers
 
@@ -608,7 +623,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		print("\n%7.3f\t" % line.total_cost, end="", file=outfile)		# How to get this right-aligned?
 		for piece in line.pieces:
 			print(" %s" % piece, end="", file=outfile)
-		#print("\n", file=outfile)
+		print(file=outfile)
 		
 		print("%7.3f\t" % bitcost, end="", file=outfile)				# Here also.        
 		for chunk in parsed_line:
@@ -709,6 +724,157 @@ class Document:	 #  <dx1 file>    <corpus>
 
 	
 
+	def load_truth_and_data(self, true_line, line_object):		# from wordbreaker code
+		unbroken_text_construction = ""
+		true_breaks_construction = list()
+		true_breaks_construction.append(0)						# always put a break at the beginning
+
+		# Clean up data as desired
+		true_line = true_line.casefold()
+		true_line = true_line.replace(".", " . ")				# these characters will go into TrueDictionary as separate words
+		true_line = true_line.replace(",", " , ")
+		true_line = true_line.replace(";", " ; ")
+		true_line = true_line.replace("!", " ! ")
+		true_line = true_line.replace("?", " ? ")
+		true_line = true_line.replace(":", " : ")
+		true_line = true_line.replace(")", " ) ")
+		true_line = true_line.replace("(", " ( ")
+
+		pieces_list = true_line.split()							# split true_line into pieces
+		if len(pieces_list) <=	1:								# punctuation only. 10 such lines in Brown corpus.
+			return
+		#pieces_list.append("\n")								# added only to match previous runs; may prefer without. ATTN: outfile_corpuslines, outfile_lrparse
+		for piece in pieces_list:
+			self.true_totalsegmentcount += 1					# Record in TrueDictionary
+			if piece not in self.true_segment_dictionary:
+				self.true_segment_dictionary[piece] = 1
+			else:
+				self.true_segment_dictionary[piece] += 1
+
+			unbroken_text_construction += piece					# Build up unbroken line
+			true_breaks_construction.append(len(unbroken_text_construction))
+		
+		line_object.unbroken_text = unbroken_text_construction
+		line_object.true_text = true_line
+		line_object.true_breaks = true_breaks_construction
+		self.line_object_list.append(line_object)
+	
+	
+	
+	def precision_recall(self):		# from wordbreaker
+
+		# the following calculations are precision and recall *for breaks* (not for morphemes)
+		true_positives = 0
+		for line in self.line_object_list:            
+			line_true_positives = len(set(line.breaks).intersection(set(line.true_breaks))) - 1		# IMPORTANT - This removes the zero breakpoint
+			true_positives += line_true_positives
+
+		self.break_precision = float(true_positives) /  self.totalsegmentcount
+		self.break_recall    = float(true_positives) /  self.true_totalsegmentcount
+
+		#formatstring = "%16s %12s %6.4f %9s %6.4f"
+		#print()
+		#print(formatstring %( "Break based word", "precision", self.break_precision, "recall", self.break_recall))
+        #print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
+
+
+        # Token_based precision for word discovery:
+		if True:
+			true_positives = 0
+			for piece in self.segment_object_dictionary:
+				if piece in self.true_segment_dictionary:
+					these_true_positives = min(self.true_segment_dictionary[piece], self.segment_object_dictionary[piece].count)
+				else:
+					these_true_positives = 0
+				true_positives += these_true_positives
+
+			self.token_precision = float(true_positives) / self.totalsegmentcount
+			self.token_recall    = float(true_positives) / self.true_totalsegmentcount
+
+			#print(formatstring %( "Token_based word", "precision", word_precision, "recall", word_recall), file=outfile)
+			#print(formatstring %( "Token_based word", "precision", word_precision, "recall", word_recall))
+
+
+		# Type_based precision for word discovery:
+		if True:
+			true_positives = 0
+			for piece in self.segment_object_dictionary:
+				if piece in self.true_segment_dictionary:
+					true_positives +=1
+
+			self.dictionary_precision = float(true_positives) / len(self.segment_object_dictionary)
+			self.dictionary_recall    = float(true_positives) / len(self.true_segment_dictionary)
+
+			#print >>outfile, "\n\n***\n"
+			#print "Type_based Word Precision  %6.4f; Word Recall  %6.4f" %(word_precision ,word_recall)
+			#print(formatstring %( " Type_based word", "precision", word_precision, "recall", word_recall), file=outfile)
+			#print(formatstring %( " Type_based word", "precision", word_precision, "recall", word_recall))
+
+
+
+	def output_stats(self, outfile, loopno):
+		if (loopno % REBASE_PERIOD == 0):
+			print()
+			print(file=outfile)		
+
+		#formatstring = "%16s %12s %6.4f %9s %6.4f"
+		#print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
+
+		#formatstring = "%4s   &2s%4s   %2s:%4s   %4s%2s %2s   %3s      %3s%6.4f   %3s%6.4f     %3s%6.4f   %3s%6.4f     %3s%6.4f   %3s%6.4f"
+		formatstring = "%4d   S:%4d   M:%4d   new:%2d %2d   %3d         BP: %6.4f   BR: %6.4f         TP: %6.4f   TR: %6.4f         DP: %6.4f   DR: %6.4f"
+
+		print( formatstring % (loopno,		
+				self.split_count,
+				self.merger_count,  
+				self.split_1newsegment_count, 
+		        self.split_2newsegments_count,
+		        self.merger_newsegment_count,
+
+		        this_document.break_precision,
+		        this_document.break_recall,
+		        this_document.token_precision,
+		        this_document.token_recall,
+		        this_document.dictionary_precision,
+		        this_document.dictionary_recall))
+
+		print( formatstring % (loopno,		
+				self.split_count,
+				self.merger_count,  
+				self.split_1newsegment_count, 
+		        self.split_2newsegments_count,
+		        self.merger_newsegment_count,
+
+		        this_document.break_precision,
+		        this_document.break_recall,
+		        this_document.token_precision,
+		        this_document.token_recall,
+		        this_document.dictionary_precision,
+		        this_document.dictionary_recall),
+		        file=outfile)
+
+
+
+
+
+
+#        #print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
+#		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count,  " \t",
+#		                          this_document.split_1newsegment_count, 
+#		                          this_document.split_2newsegments_count, 		    " ",
+#		                          this_document.merger_newsegment_count,		  " \t", 
+#		                          "BP: %6.4f" % this_document.break_precision,  	" ",
+#		                          "BR: %6.4f" % this_document.break_recall,       " \t",
+#		                          "TP: %6.4f" % this_document.token_precision,	    " ",
+#		                          "TR: %6.4f" % this_document.token_recall,       " \t",
+#		                          "DP: %6.4f" % this_document.dictionary_precision,	" ",
+#		                          "DR: %6.4f" % this_document.dictionary_recall)
+		#formatstring = "%16s %12s %6.4f %9s %6.4f"
+		#print()
+		#print(formatstring %( "Break based word", "precision", self.break_precision, "recall", self.break_recall))
+        #print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
+
+
+	
 	def test_unbroken_text(self, text):	
 		print("\npoint = 0 (i.e., unbroken text)")		
 		test_parse = Line(text)
@@ -801,7 +967,7 @@ def load_state_from_file(pkl_infile_name):
 language = "english"
 infolder = '../data/' + language + '/'
 size = 50 #french 153 10 english 14 46
-infilename = infolder + "english-brown-unbroken.txt"  # unbroken corpus, instead of .dx1 file
+infilename = infolder + "english-brown.txt"  # corpus, instead of .dx1 file
 
 # if an argument is specified, uses that instead of the above path for input
 if len(sys.argv) > 1:
@@ -820,19 +986,19 @@ print("Data file: ", infilename)
 outfolder = '../data/'+ language + '/gibbs_wordbreaking/'
 outfilename_gibbspieces = outfolder +  "gibbs_pieces.txt"
 outfilename_corpuslines = outfolder +  "corpus_lines.txt"
-outfilename_splitmerge = outfolder +  "split_merge_counts.txt"
+outfilename_stats   = outfolder + "stats.txt"
 outfilename_lrparse = outfolder + "left_right_parse.txt"
 
 if g_encoding == "utf8":
 	outfile_gibbspieces = codecs.open(outfilename_gibbspieces, encoding =  "utf-8", mode = 'w',)
 	outfile_corpuslines = codecs.open(outfilename_corpuslines, encoding =  "utf-8", mode = 'w',)
-	outfile_splitmerge = codecs.open(outfilename_splitmerge, encoding =  "utf-8", mode = 'w',)
+	outfile_stats   = codecs.open(outfilename_stats,   encoding =  "utf-8", mode = 'w',)
 	outfile_lrparse = codecs.open(outfilename_lrparse, encoding =  "utf-8", mode = 'w',)
 	print("yes utf8")
 else:
 	outfile_gibbspieces = open(outfilename_gibbspieces, mode='w') 
 	outfile_corpuslines = open(outfilename_corpuslines, mode='w') 
-	outfile_splitmerge = open(outfilename_splitmerge, mode='w') 
+	outfile_stats   = open(outfilename_stats,   mode='w') 
 	outfile_lrparse = open(outfilename_lrparse, mode='w')
 	
 	
@@ -849,16 +1015,23 @@ else:
 #---------------------------------------------------------#
 	# Once jsonpickle is set up,
 	# loading from a saved state (to resume processing)
-	# will be an alternatives to sections 1 and 2.
+	# will be an alternative to sections 1 and 2.
 
 	this_document = Document()	
 	random.seed(a=5)    # audrey  2015_12_09  #Note that integer seed is not affected by seed change in python3
 
+
 	# THIS PART IS FOR CORPUS INPUT
-	textline_list = infile.readlines()
-	for textline in textline_list:
-		this_document.line_object_list.append(Line(textline))
-	print("There are ", len(this_document.line_object_list), "lines in this document")
+	truelines_list = infile.readlines()
+	infile.close()
+	for trueline in truelines_list:
+		line_object = Line("dummy")
+		this_document.load_truth_and_data(trueline, line_object)
+
+	print("Data file has", len(this_document.line_object_list), "lines,",  \
+	       len(this_document.true_segment_dictionary), "distinct words,",  \
+	       this_document.true_totalsegmentcount, "word occurrences.")
+	
 
 	# THIS PART IS FOR READING FROM dx1 FILE	[not yet reworked for new class structure  2016_01_21]
 	#filelines= infile.readlines()
@@ -885,7 +1058,7 @@ else:
 #---------------------------------------------------------# 
 
 	this_document.initial_segmentation()
-	print("End of initial randomization.") 
+	print("Initial randomization completed.") 
 
 
 #----------------------------------------------------------#
@@ -903,16 +1076,9 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 	for line in this_document.line_object_list:
 		this_document.compare_alt_parse(line)
 
-	if True:
-		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count,  " \t",
-		                          this_document.split_1newsegment_count, 
-		                          this_document.split_2newsegments_count, " ",
-		                          this_document.merger_newsegment_count,   file=outfile_splitmerge)
-		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count,  " \t",
-		                          this_document.split_1newsegment_count, 
-		                          this_document.split_2newsegments_count, " ",
-		                          this_document.merger_newsegment_count)
-		                          
+	this_document.precision_recall()
+	this_document.output_stats(outfile_stats, loopno)
+			                          
 	
 	#-----------------------------#
 	#       output results 		  #	
@@ -932,12 +1098,12 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 	if loopno == NumberOfIterations -1:
 		print("----------------------------------------\nLoop number:", loopno, file=outfile_corpuslines)
 		print("----------------------------------------", file=outfile_corpuslines)
-		#this_document.showlines_detail(outfile1)									# displays text and also total line cost, detailed by segment and cost component
-		this_document.showlines_textonly(outfile_corpuslines)						# "textonly" makes it easier to see diffs during development
+		#this_document.output_corpuslines_detail(outfile1)									# displays text and also total line cost, detailed by segment and cost component
+		this_document.output_corpuslines_textonly(outfile_corpuslines)						# "textonly" makes it easier to see diffs during development
 
 		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
 		print("----------------------------------------", file=outfile_gibbspieces)			
-		this_document.print_segment_counts(outfile_gibbspieces)
+		this_document.output_gibbspieces(outfile_gibbspieces)
 		
 		if SaveState == True:
 			this_document.random_state = random.getstate()							# saves state of random number generator
@@ -948,7 +1114,7 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 # CLOSE OUTPUT FILES SO THAT INFORMATION DERIVED BY PROGRAM CAN BE VIEWED DURING INTERACTIVE QUERIES
 
 outfile_lrparse.close()
-outfile_splitmerge.close()
+outfile_stats.close()
 outfile_corpuslines.close()
 outfile_gibbspieces.close()
 
