@@ -23,13 +23,13 @@ REBASE_PERIOD = 10		# number of iterations between calls to rebase()
 FLOAT_INF = float("inf")
 
 
-NumberOfIterations = 15   # 160	 # 200	 # 400	
-ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
-print("Number of iterations =", NumberOfIterations)
+NumberOfIterations = 500          # 160	 # 200	 # 400	
+ResumeLoopno = 350									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
+print("\nNumber of iterations =", NumberOfIterations)
 if ResumeLoopno > 0:
 	print("Resume processing starting at loopno =", ResumeLoopno)
 
-SaveState = False	# True
+SaveState = True	# True
 
 
 ## ---------------------------------------------------------------------------------------##
@@ -291,6 +291,10 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.token_recall				= 0.0
 		self.dictionary_precision		= 0.0
 		self.dictionary_recall			= 0.0
+		self.addedandtrue_devcount		= 0.0			# these 4 are for diagnosing DR (DictionaryRecall); added on Feb. 25, 2016
+		self.deletedandtrue_devcount	= 0.0
+		self.addedandtrue_dictionary	= {}			# key is piece; value is the count in the true_segment_dictionaryx
+		self.deletedandtrue_dictionary	= {}
 		self.other_statistics     		= 0.0			# What should be measured?
 		self.random_state				= None			# save state of random number generator in this spot
 														# so that it will be preserved by pickling
@@ -322,6 +326,24 @@ class Document:	 #  <dx1 file>    <corpus>
 
 		print("\ntotalsegmentcount =", self.totalsegmentcount, file=outfile)	
 		print("\n=== Dictionary ===", file=outfile)
+		for n in range(len(countslist)):
+			print(n, countslist[n][0], countslist[n][1], file=outfile)
+		
+	def output_addedandtrue(self, outfile):
+		#countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetical
+		countslist = sorted(self.addedandtrue_dictionary.items(), key = lambda x:x[0])				#secondary sort is alphabetical (ascending)
+		countslist = sorted(countslist, key = lambda x:x[1], reverse=True)							#primary sort is by count (descending)
+
+		print("\n=== addedandtrue_dictionary ===", file=outfile)
+		for n in range(len(countslist)):
+			print(n, countslist[n][0], countslist[n][1], file=outfile)
+		
+	def output_deletedandtrue(self, outfile):
+		#countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetical
+		countslist = sorted(self.deletedandtrue_dictionary.items(), key = lambda x:x[0])					#secondary sort is alphabetical (ascending)
+		countslist = sorted(countslist, key = lambda x:x[1], reverse=True)							#primary sort is by count (descending)
+
+		print("\n=== deletedandtrue_dictionary ===", file=outfile)
 		for n in range(len(countslist)):
 			print(n, countslist[n][0], countslist[n][1], file=outfile)
 		
@@ -380,7 +402,8 @@ class Document:	 #  <dx1 file>    <corpus>
 	
 
 
-	def compare_alt_parse(self, line):
+	def compare_alt_parse(self, line, outfile_del_analysis):
+#	def compare_alt_parse(self, line):
 		# EXPLANATORY NOTE
 		###		point = 1 + int(random.random() * (len(line.unbroken_text)-1)) 
 		# Before python3, this line and the first line of code below were equivalent.
@@ -404,7 +427,7 @@ class Document:	 #  <dx1 file>    <corpus>
 			# local contribution to line cost as presently configured
 			singlepiece = line.unbroken_text[leftbreak:rightbreak]			# Note singlepiece == line.pieces[breakindex-1]
 			if singlepiece not in self.segment_object_dictionary:
-				print("Error in CompareAltParse: singlepiece (= ", singlepiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
+				print("Error in CompareAltParse: singlepiece (=", singlepiece, ") not found in dictionary at line ='", line.unbroken_text, "'.")
 				sys.exit()
 			singlesegment = self.fetch_plogged_segment_from_dictionary(singlepiece)
 			current_contribution = singlesegment.get_instance_cost(self.totalsegmentcount)
@@ -429,8 +452,14 @@ class Document:	 #  <dx1 file>    <corpus>
 			                   math.log(1 + len(line.pieces), 2)
 			# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
 
-
-			if alt_contribution < current_contribution:
+			
+			# FOR SAMPLING, USE THESE LINES
+			selection = random.random()		# selects uniformly from [0.0,1.0)
+			normalized_alt_contribution = alt_contribution / (alt_contribution + current_contribution)
+			if normalized_alt_contribution < selection:
+			
+			# FOR DETERMINISTIC SELECTION, USE THIS LINE
+			#if alt_contribution < current_contribution:
 				# UPDATE THE PARSE
 				line.piecesorder_cost += math.log(1 + len(line.pieces), 2)
 				line.pieces[breakindex-1] = leftpiece		# i.e., replace singlepiece by leftpiece
@@ -449,21 +478,40 @@ class Document:	 #  <dx1 file>    <corpus>
 				singlesegment.count -= 1
 				if singlesegment.count == 0:
 					del self.segment_object_dictionary[singlepiece]
+					# 2016_02_25
+					if singlepiece in self.true_segment_dictionary:		# additional info; no contribution to processing
+						self.deletedandtrue_devcount += 1
+						self.deletedandtrue_dictionary[singlepiece] = self.true_segment_dictionary[singlepiece]
+						print("Split", file=outfile_del_analysis)
+						print("   Pieces:        single =", singlepiece, "   left =", leftpiece, "   right =", rightpiece, file=outfile_del_analysis)
+						print("   Cost_contribs: current =", current_contribution, "   alt =", alt_contribution, file=outfile_del_analysis)
+						print("   Counts:        single =", singlesegment.count, "   left =", left_segment.count, "   right =", right_segment.count, file=outfile_del_analysis)
+						print("   True count:    single =", self.true_segment_dictionary[singlepiece], file=outfile_del_analysis)
 				else:
 					singlesegment.divide_charges_among_instances()
 					singlesegment.plog = singlesegment.get_plog(self.totalsegmentcount)
 				
-				left_segment.count += 1
-				left_segment.divide_charges_among_instances()
-				left_segment.plog = left_segment.get_plog(self.totalsegmentcount)
 				if leftpiece not in self.segment_object_dictionary:
 					self.segment_object_dictionary[leftpiece] = left_segment
+					# 2016_02_25
+					if leftpiece in self.true_segment_dictionary:		# additional info; no contribution to processing
+						self.addedandtrue_devcount += 1
+						self.addedandtrue_dictionary[leftpiece] = self.true_segment_dictionary[leftpiece]
+				# REORDERED    2016_03_05
+				self.segment_object_dictionary[leftpiece].count += 1
+				self.segment_object_dictionary[leftpiece].divide_charges_among_instances()
+				self.segment_object_dictionary[leftpiece].plog = self.segment_object_dictionary[leftpiece].get_plog(self.totalsegmentcount)
 				
-				right_segment.count += 1
-				right_segment.divide_charges_among_instances()
-				right_segment.plog = right_segment.get_plog(self.totalsegmentcount)
 				if rightpiece not in self.segment_object_dictionary:
 					self.segment_object_dictionary[rightpiece] = right_segment
+					# 2016_02_25
+					if rightpiece in self.true_segment_dictionary:		# additional info; no contribution to processing
+						self.addedandtrue_devcount += 1
+						self.addedandtrue_dictionary[rightpiece] = self.true_segment_dictionary[rightpiece]
+				# REORDERED TO CORRECT ERROR WITH "-m-m" SPLIT TO NEW SEGMENTS "-m -m" MISCOUNT   2016_03_05
+				self.segment_object_dictionary[rightpiece].count += 1
+				self.segment_object_dictionary[rightpiece].divide_charges_among_instances()
+				self.segment_object_dictionary[rightpiece].plog = self.segment_object_dictionary[rightpiece].get_plog(self.totalsegmentcount)
 
 
 		
@@ -497,8 +545,14 @@ class Document:	 #  <dx1 file>    <corpus>
 			alt_contribution = merged_segment.get_instance_cost(self.totalsegmentcount) - math.log(len(line.pieces), 2)
 			# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
 
-
-			if alt_contribution < current_contribution:
+			
+			# FOR SAMPLING, USE THESE LINES
+			selection = random.random()		# selects uniformly from [0.0,1.0)
+			normalized_alt_contribution = alt_contribution / (alt_contribution + current_contribution)
+			if normalized_alt_contribution < selection:
+			
+			# FOR DETERMINISTIC SELECTION, USE THIS LINE
+			#if alt_contribution < current_contribution:
 				# UPDATE THE PARSE
 				line.piecesorder_cost -= math.log(len(line.pieces), 2)
 				line.pieces[breakindex-1] = merged_piece				# i.e., replace leftpiece by merged_piece
@@ -512,15 +566,29 @@ class Document:	 #  <dx1 file>    <corpus>
 				self.totalsegmentcount -= 1
 				
 				# UPDATE DICTIONARY ENTRIES
-				merged_segment.count += 1
-				merged_segment.divide_charges_among_instances()
-				merged_segment.plog = merged_segment.get_plog(self.totalsegmentcount)
 				if merged_piece not in self.segment_object_dictionary:
 					self.segment_object_dictionary[merged_piece] = merged_segment
+					# 2016_02_25
+					if merged_piece in self.true_segment_dictionary:		# additional info; no contribution to processing
+						self.addedandtrue_devcount +=1
+						self.addedandtrue_dictionary[merged_piece] = self.true_segment_dictionary[merged_piece]
+				# REORDERED   2016_03_05
+				self.segment_object_dictionary[merged_piece].count += 1
+				self.segment_object_dictionary[merged_piece].divide_charges_among_instances()
+				self.segment_object_dictionary[merged_piece].plog = self.segment_object_dictionary[merged_piece].get_plog(self.totalsegmentcount)
 					
 				left_segment.count -= 1
 				if left_segment.count == 0:
 					del self.segment_object_dictionary[leftpiece]
+					# 2016_02_25
+					if left_segment in self.true_segment_dictionary:		# additional info; no contribution to processing
+						self.deletedandtrue_devcount += 1
+						self.deletedandtrue_dictionary[left_segment] = self.true_segment_dictionary[left_segment]
+						print("Merge", file=outfile_del_analysis)
+						print("   Pieces:        merged =", merged_piece, "   left =", leftpiece, "   right =", rightpiece, file=outfile_del_analysis)
+						print("   Cost_contribs: current =", current_contribution, "   alt =", alt_contribution, file=outfile_del_analysis)
+						print("   Counts:        left =", left_segment.count, "   right =", right_segment.count, file=outfile_del_analysis)
+						print("   True count:    left =", self.true_segment_dictionary[leftpiece], file=outfile_del_analysis)
 				else:
 					left_segment.divide_charges_among_instances()
 					left_segment.plog = left_segment.get_plog(self.totalsegmentcount)
@@ -528,6 +596,15 @@ class Document:	 #  <dx1 file>    <corpus>
 				right_segment.count -= 1
 				if right_segment.count == 0:
 					del self.segment_object_dictionary[rightpiece]
+					# 2016_02_25
+					if right_segment in self.true_segment_dictionary:		# additional info; no contribution to processing
+						self.deletedandtrue_devcount += 1
+						self.deletedandtrue_dictionary[right_segment] = self.true_segment_dictionary[right_segment]
+						print("Merge", file=outfile_del_analysis)
+						print("   Piecess:       merged =", mergedpiece, "   left =", leftpiece, "   right =", rightpiece, file=outfile_del_analysis)
+						print("   Cost_contribs: current =", current_contribution, "   alt =", alt_contribution, file=outfile_del_analysis)
+						print("   Counts:        left =",  left_segment.count, "   right =", right_segment.count, file=outfile_del_analysis)
+						print("   True count:    right =", self.true_segment_dictionary[rightpiece], file=outfile_del_analysis)
 				else:
 					right_segment.divide_charges_among_instances()
 					right_segment.plog = right_segment.get_plog(self.totalsegmentcount)
@@ -543,7 +620,7 @@ class Document:	 #  <dx1 file>    <corpus>
         #                                      <------chunk--------->
 
 
-		verboseflag = True	# False	 # True
+		verboseflag = False		# False	 # True
 		if verboseflag: print("\n", file=outfile)
 		if verboseflag: print(line.unbroken_text, file=outfile)
 		if verboseflag:	print("Outer\tInner", file=outfile)
@@ -817,11 +894,7 @@ class Document:	 #  <dx1 file>    <corpus>
 			print()
 			print(file=outfile)		
 
-		#formatstring = "%16s %12s %6.4f %9s %6.4f"
-		#print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
-
-		#formatstring = "%4s   &2s%4s   %2s:%4s   %4s%2s %2s   %3s      %3s%6.4f   %3s%6.4f     %3s%6.4f   %3s%6.4f     %3s%6.4f   %3s%6.4f"
-		formatstring = "%4d   S:%4d   M:%4d   new:%2d %2d   %3d         BP: %6.4f   BR: %6.4f         TP: %6.4f   TR: %6.4f         DP: %6.4f   DR: %6.4f"
+		formatstring = "%4d   S:%4d   M:%4d   new:%2d %2d   %3d    At:%4d   Dt:%4d      BP: %6.4f   BR: %6.4f         TP: %6.4f   TR: %6.4f         DP: %6.4f   DR: %6.4f"
 
 		print( formatstring % (loopno,		
 				self.split_count,
@@ -829,6 +902,9 @@ class Document:	 #  <dx1 file>    <corpus>
 				self.split_1newsegment_count, 
 		        self.split_2newsegments_count,
 		        self.merger_newsegment_count,
+		        
+		        self.addedandtrue_devcount,
+		        self.deletedandtrue_devcount,
 
 		        this_document.break_precision,
 		        this_document.break_recall,
@@ -843,6 +919,9 @@ class Document:	 #  <dx1 file>    <corpus>
 				self.split_1newsegment_count, 
 		        self.split_2newsegments_count,
 		        self.merger_newsegment_count,
+		        
+		        self.addedandtrue_devcount,
+		        self.deletedandtrue_devcount,
 
 		        this_document.break_precision,
 		        this_document.break_recall,
@@ -851,27 +930,6 @@ class Document:	 #  <dx1 file>    <corpus>
 		        this_document.dictionary_precision,
 		        this_document.dictionary_recall),
 		        file=outfile)
-
-
-
-
-
-
-#        #print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
-#		print("%4s" %loopno, " ", this_document.split_count, this_document.merger_count,  " \t",
-#		                          this_document.split_1newsegment_count, 
-#		                          this_document.split_2newsegments_count, 		    " ",
-#		                          this_document.merger_newsegment_count,		  " \t", 
-#		                          "BP: %6.4f" % this_document.break_precision,  	" ",
-#		                          "BR: %6.4f" % this_document.break_recall,       " \t",
-#		                          "TP: %6.4f" % this_document.token_precision,	    " ",
-#		                          "TR: %6.4f" % this_document.token_recall,       " \t",
-#		                          "DP: %6.4f" % this_document.dictionary_precision,	" ",
-#		                          "DR: %6.4f" % this_document.dictionary_recall)
-		#formatstring = "%16s %12s %6.4f %9s %6.4f"
-		#print()
-		#print(formatstring %( "Break based word", "precision", self.break_precision, "recall", self.break_recall))
-        #print(formatstring %( "Break based word", "precision", break_precision, "recall", break_recall), file=outfile)
 
 
 	
@@ -980,7 +1038,7 @@ if g_encoding == "utf8":
 else:
 	infile = open(infilename) 
 
-print("Data file: ", infilename)
+print("\nData file: ", infilename)
 
 # organize files like this or change the paths here for output
 outfolder = '../data/'+ language + '/gibbs_wordbreaking/'
@@ -1000,12 +1058,26 @@ else:
 	outfile_corpuslines = open(outfilename_corpuslines, mode='w') 
 	outfile_stats   = open(outfilename_stats,   mode='w') 
 	outfile_lrparse = open(outfilename_lrparse, mode='w')
+
+	# 2016_02_25
+	outfilename_addedandtrue   = outfolder + "addedandtrue.txt"
+	outfilename_deletedandtrue = outfolder + "deletedandtrue.txt"
+	outfile_addedandtrue   = open(outfilename_addedandtrue, mode='w')
+	outfile_deletedandtrue = open(outfilename_deletedandtrue, mode='w')
+	
+	#2016_02_27
+	outfilename_del_analysis = outfolder + "del_analysis.txt"
+	outfile_del_analysis     = open(outfilename_del_analysis, mode='w')
 	
 	
 if ResumeLoopno > 0:	
 #---------------------------------------------------------#
 #	Load state to resume processing	
 #---------------------------------------------------------#
+	print()
+	print("State will be loaded from the following file:") 
+	os.system("ls -l jsonpickle_infile.txt")
+	print()
 	this_document = load_state_from_file("jsonpickle_infile.txt")		# ln -s  <relative_or_absolute_filename>  jsonpickle_infile.txt
 	random.setstate(this_document.random_state)							# restores state of random number generator
  	
@@ -1058,7 +1130,46 @@ else:
 #---------------------------------------------------------# 
 
 	this_document.initial_segmentation()
-	print("Initial randomization completed.") 
+	print("Initial randomization completed.")
+	
+	loopno = -1
+	this_document.precision_recall()
+	this_document.output_stats(outfile_stats, loopno)	
+
+	# THIS PART IS PROBABLY TEMPORARY OR IF NOT MAY BE REORGANIZED  
+	#-----------------------------#
+	#       output results 		  #	
+	#-----------------------------#
+	#if loopno == 0  or  loopno == 10 or loopno == 20 or  loopno == 100 or loopno == NumberOfIterations -1:
+	
+	if False:
+		if ((loopno+1) % REBASE_PERIOD == 0) or (loopno == NumberOfIterations -1): 
+			for line in this_document.line_object_list: 
+ 				# computes cost for entire line using information recorded in line and segment objects; does not change parse.
+				for piece in line.pieces:
+					assert(piece in this_document.segment_object_dictionary)			# there should be no "new" pieces
+				this_document.compute_brokenline_cost(line)								# needed only for display on lrparse.txt, not for processing  		
+
+		if ((loopno+1) % REBASE_PERIOD == 0):
+			this_document.rebase(outfile_lrparse)		# reparse, recount, recompute	
+			this_document.precision_recall()
+			this_document.output_stats(outfile_stats, loopno)
+	
+		if loopno == NumberOfIterations -1:
+			print("----------------------------------------\nLoop number:", loopno, file=outfile_corpuslines)
+			print("----------------------------------------", file=outfile_corpuslines)
+			#this_document.output_corpuslines_detail(outfile1)									# displays text and also total line cost, detailed by segment and cost component
+			this_document.output_corpuslines_textonly(outfile_corpuslines)						# "textonly" makes it easier to see diffs during development
+
+			print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
+			print("----------------------------------------", file=outfile_gibbspieces)			
+			this_document.output_gibbspieces(outfile_gibbspieces)
+		
+			if SaveState == True:
+				this_document.random_state = random.getstate()							# saves state of random number generator
+				save_state_to_file(loopno, outfolder + "jsonpickle_" + str(loopno) + ".txt", this_document)
+			
+
 
 
 #----------------------------------------------------------#
@@ -1072,9 +1183,12 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 	this_document.split_1newsegment_count  = 0
 	this_document.split_2newsegments_count = 0
 	this_document.merger_newsegment_count  = 0
-		
+	# 2016_02_25
+	this_document.addedandtrue_devcount = 0
+	this_document.deletedandtrue_devcount = 0
+
 	for line in this_document.line_object_list:
-		this_document.compare_alt_parse(line)
+		this_document.compare_alt_parse(line, outfile_del_analysis)
 
 	this_document.precision_recall()
 	this_document.output_stats(outfile_stats, loopno)
@@ -1094,6 +1208,8 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 
 	if ((loopno+1) % REBASE_PERIOD == 0):
 		this_document.rebase(outfile_lrparse)		# reparse, recount, recompute	
+		this_document.precision_recall()
+		this_document.output_stats(outfile_stats, loopno)
 	
 	if loopno == NumberOfIterations -1:
 		print("----------------------------------------\nLoop number:", loopno, file=outfile_corpuslines)
@@ -1105,6 +1221,16 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 		print("----------------------------------------", file=outfile_gibbspieces)			
 		this_document.output_gibbspieces(outfile_gibbspieces)
 		
+		# 2016_02_25
+		
+		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
+		print("----------------------------------------", file=outfile_gibbspieces)			
+		this_document.output_addedandtrue(outfile_addedandtrue)
+		
+		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
+		print("----------------------------------------", file=outfile_gibbspieces)			
+		this_document.output_deletedandtrue(outfile_deletedandtrue)
+		
 		if SaveState == True:
 			this_document.random_state = random.getstate()							# saves state of random number generator
 			save_state_to_file(loopno, outfolder + "jsonpickle_" + str(loopno) + ".txt", this_document)
@@ -1113,6 +1239,9 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 
 # CLOSE OUTPUT FILES SO THAT INFORMATION DERIVED BY PROGRAM CAN BE VIEWED DURING INTERACTIVE QUERIES
 
+outfile_del_analysis.close()
+outfile_addedandtrue.close()
+outfile_deletedandtrue.close()
 outfile_lrparse.close()
 outfile_stats.close()
 outfile_corpuslines.close()
