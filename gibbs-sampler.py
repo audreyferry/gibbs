@@ -10,21 +10,22 @@ import jsonpickle
 import time
 import datetime
 import copy
+#import numpy     # TODAY ONLY
 g_encoding = "asci"  # "utf8"
 
 
 # PARAMETERS   # probably want shorter segments initially (so BREAKPROB higher than 0.1)
 BitsPerLetter = 5
-BREAKPROB     = 0.3		# 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
+BREAKPROB     = 0.3		#0.3		# 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
 DEFAULTCOUNT  = 1		# 0.5  # Used in divide_charges_among_instances() and in get_plog()
-PLOGCOEFF     = 3		# used in get_plog_charge()
-PENALTYFACTOR = 1.5		# extra factor in get_plog_charge() for "new" segment (not in dictionary)	1.5  2.0  1.25
-REBASE_PERIOD = 10		# number of iterations between calls to rebase()
+PLOGCOEFF     = 3 		# 3		# used in get_plog_charge()
+PENALTYFACTOR = 1.5		# extra factor in get_plog_charge() for "new" segment (not in dictionary)	1.0	 1.5  2.0  1.25  1.3
+REBASE_PERIOD = 10		# number of iterations between calls to rebase()   # standard setting = 10
 FLOAT_INF = float("inf")
 
 
-NumberOfIterations = 500          # 160	 # 200	 # 400	
-ResumeLoopno = 350									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
+NumberOfIterations = 25          # 160	 # 200	 # 400	
+ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
 print("\nNumber of iterations =", NumberOfIterations)
 if ResumeLoopno > 0:
 	print("Resume processing starting at loopno =", ResumeLoopno)
@@ -40,6 +41,7 @@ class Segment:   # think   <morpheme> for morphology,  <word-type> or dictionary
 		self.count                 = 0 
 		self.phonocost             = len(segment_text) * float(BitsPerLetter)
 		self.ordercost             = math.log (math.factorial(len(segment_text)), 2)
+		#<self.ordercost           = 0.0>		# <produces interesting results>
 		self.inclusioncost         = 1.0
 		self.phonocost_portion     = 0.0		# phonocost / count
 		self.ordercost_portion     = 0.0		# etc.
@@ -279,12 +281,12 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.line_object_list     		= []			# list of Line objects   (former WordObjectList)
 		self.segment_object_dictionary	= {}			# dictionary  key: piece   value: segment object
 		self.totalsegmentcount   		= 0
-		self.merger_count         		= 0
+		self.merge_count         		= 0
 		self.split_count          		= 0
-		self.merger_newsegment_count	= 0				# these 3 added on Feb. 2, 2016
+		self.merge_newsegment_count	= 0				# these 3 added on Feb. 2, 2016
 		self.split_1newsegment_count	= 0
 		self.split_2newsegments_count	= 0
-		self.split_merger_history 		= []
+		self.split_merge_history 		= []
 		self.break_precision			= 0.0			# these 6 added on Feb. 21, 2016
 		self.break_recall				= 0.0
 		self.token_precision			= 0.0
@@ -310,7 +312,7 @@ class Document:	 #  <dx1 file>    <corpus>
 
 	def output_corpuslines_textonly(self, outfile):
 		for line in self.line_object_list:
-			line.displaytextonly(outfile)	# displays only unbroken line and its parse
+			line.displaytextonly(outfile)			# displays only unbroken line and its parse
 			print("       cost: %7.3f\n" % line.total_cost, end=' ', file=outfile)	
 	
 	def output_gibbspieces(self, outfile):
@@ -402,8 +404,7 @@ class Document:	 #  <dx1 file>    <corpus>
 	
 
 
-	def compare_alt_parse(self, line, outfile_del_analysis):
-#	def compare_alt_parse(self, line):
+	def compare_alt_parse(self, line):
 		# EXPLANATORY NOTE
 		###		point = 1 + int(random.random() * (len(line.unbroken_text)-1)) 
 		# Before python3, this line and the first line of code below were equivalent.
@@ -411,31 +412,33 @@ class Document:	 #  <dx1 file>    <corpus>
 		# Using random.random() as shown above DOES exactly reproduce pre-python3 results,
 		# except for spacing and ordering.
 	
-		point = random.randrange( 1, len(line.unbroken_text))	# selects a point to consider splitting at, not beginning or end
-																# Suppose len(line.unbroken_text) = 100
-																# Index runs from 0 through 99. Don't pick 0. 
-																# But OK to pick 99. That splits off the last character of the line.
-		breakpoint, breakindex = line.break_cover(point)
+		attentionpoint = random.randrange( 1, len(line.unbroken_text))	# selects a possible spot for a change, not before all text or after.
+																		# attentionpoint k refers to a current or potential break between text points k-1 and k.
+																		# Suppose len(line.unbroken_text) = 5
+																		# Text index runs from 0 through 4. Don't pick 0. Don't pick 5.
+																		# But OK to pick 4. That splits off the last character of the line.
+		coverbrkpt, coverbrkidx = line.break_cover(attentionpoint)
 
-	
-		# Splitting:
-		if point < breakpoint:												# point may be any character within its piece except the first
+
+		# SPLITTING:
+		if attentionpoint < coverbrkpt:										# attentionpoint may be any character within its piece except the first
 		
-			leftbreak  = line.breaks[breakindex-1]
-			rightbreak = line.breaks[breakindex]       						# Note rightbreak == breakpoint
+			leftbreak  = line.breaks[coverbrkidx-1]
+			rightbreak = line.breaks[coverbrkidx]       					# Note rightbreak == coverbrkpt
 
-			# local contribution to line cost as presently configured
-			singlepiece = line.unbroken_text[leftbreak:rightbreak]			# Note singlepiece == line.pieces[breakindex-1]
+			# Consider a modification of current parse at the selected location
+
+			# current configuration
+			singlepiece = line.unbroken_text[leftbreak:rightbreak]			# Note singlepiece == line.pieces[coverbrkidx-1]
 			if singlepiece not in self.segment_object_dictionary:
 				print("Error in CompareAltParse: singlepiece (=", singlepiece, ") not found in dictionary at line ='", line.unbroken_text, "'.")
 				sys.exit()
-			singlesegment = self.fetch_plogged_segment_from_dictionary(singlepiece)
-			current_contribution = singlesegment.get_instance_cost(self.totalsegmentcount)
+			single_segment = self.fetch_plogged_segment_from_dictionary(singlepiece)
 
 			
-			# alternative contribution 	
-			leftpiece  = line.unbroken_text[leftbreak:point]
-			rightpiece = line.unbroken_text[point:rightbreak]
+			# alternate configuration 	
+			leftpiece  = line.unbroken_text[leftbreak:attentionpoint]
+			rightpiece = line.unbroken_text[attentionpoint:rightbreak]
 			
 			if leftpiece in self.segment_object_dictionary:
 				left_segment  = self.fetch_plogged_segment_from_dictionary(leftpiece)
@@ -447,83 +450,106 @@ class Document:	 #  <dx1 file>    <corpus>
 			else:
 				right_segment  = self.new_segment_object(rightpiece, 0)
 			
-			alt_contribution = left_segment.get_instance_cost(self.totalsegmentcount)   +  \
-							   right_segment.get_instance_cost(self.totalsegmentcount)  +  \
-			                   math.log(1 + len(line.pieces), 2)
-			# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
-
 			
-			# FOR SAMPLING, USE THESE LINES
-			selection = random.random()		# selects uniformly from [0.0,1.0)
-			normalized_alt_contribution = alt_contribution / (alt_contribution + current_contribution)
-			if normalized_alt_contribution < selection:
-			
-			# FOR DETERMINISTIC SELECTION, USE THIS LINE
-			#if alt_contribution < current_contribution:
-				# UPDATE THE PARSE
-				line.piecesorder_cost += math.log(1 + len(line.pieces), 2)
-				line.pieces[breakindex-1] = leftpiece		# i.e., replace singlepiece by leftpiece
-				line.breaks.insert(breakindex, point)		# or use addcut  
-				line.pieces.insert(breakindex, rightpiece)
-				 
-				# UPDATE GLOBAL COUNTS
-				if left_segment.count == 0 and right_segment.count == 0:
-					self.split_2newsegments_count += 1
-				elif left_segment.count == 0 or right_segment.count == 0:
-					self.split_1newsegment_count += 1
-				self.split_count += 1
-				self.totalsegmentcount += 1
-				
-				# UPDATE DICTIONARY ENTRIES
-				singlesegment.count -= 1
-				if singlesegment.count == 0:
-					del self.segment_object_dictionary[singlepiece]
-					# 2016_02_25
-					if singlepiece in self.true_segment_dictionary:		# additional info; no contribution to processing
-						self.deletedandtrue_devcount += 1
-						self.deletedandtrue_dictionary[singlepiece] = self.true_segment_dictionary[singlepiece]
-						print("Split", file=outfile_del_analysis)
-						print("   Pieces:        single =", singlepiece, "   left =", leftpiece, "   right =", rightpiece, file=outfile_del_analysis)
-						print("   Cost_contribs: current =", current_contribution, "   alt =", alt_contribution, file=outfile_del_analysis)
-						print("   Counts:        single =", singlesegment.count, "   left =", left_segment.count, "   right =", right_segment.count, file=outfile_del_analysis)
-						print("   True count:    single =", self.true_segment_dictionary[singlepiece], file=outfile_del_analysis)
-				else:
-					singlesegment.divide_charges_among_instances()
-					singlesegment.plog = singlesegment.get_plog(self.totalsegmentcount)
-				
-				if leftpiece not in self.segment_object_dictionary:
-					self.segment_object_dictionary[leftpiece] = left_segment
-					# 2016_02_25
-					if leftpiece in self.true_segment_dictionary:		# additional info; no contribution to processing
-						self.addedandtrue_devcount += 1
-						self.addedandtrue_dictionary[leftpiece] = self.true_segment_dictionary[leftpiece]
-				# REORDERED    2016_03_05
-				self.segment_object_dictionary[leftpiece].count += 1
-				self.segment_object_dictionary[leftpiece].divide_charges_among_instances()
-				self.segment_object_dictionary[leftpiece].plog = self.segment_object_dictionary[leftpiece].get_plog(self.totalsegmentcount)
-				
-				if rightpiece not in self.segment_object_dictionary:
-					self.segment_object_dictionary[rightpiece] = right_segment
-					# 2016_02_25
-					if rightpiece in self.true_segment_dictionary:		# additional info; no contribution to processing
-						self.addedandtrue_devcount += 1
-						self.addedandtrue_dictionary[rightpiece] = self.true_segment_dictionary[rightpiece]
-				# REORDERED TO CORRECT ERROR WITH "-m-m" SPLIT TO NEW SEGMENTS "-m -m" MISCOUNT   2016_03_05
-				self.segment_object_dictionary[rightpiece].count += 1
-				self.segment_object_dictionary[rightpiece].divide_charges_among_instances()
-				self.segment_object_dictionary[rightpiece].plog = self.segment_object_dictionary[rightpiece].get_plog(self.totalsegmentcount)
-
-
+			# In the standard case we consider singlepiece vs. (leftpiece and rightpiece).
+			# When possible, we consider in addition whether to merge a separated single character with the preceding or following segment, as appropriate.
+			# For each case:
+			#  - calculate alternative costs 
+			#  - select among alternatives by sampling 
+			#  - update information
 		
-		# Merging:
-		elif point == line.breaks[breakindex]:								# here point is the first character within its piece
+			leftsingleton_case  = (len(leftpiece)  == 1) and (leftbreak  != 0)
+			rightsingleton_case = (len(rightpiece) == 1) and (rightbreak != len(line.unbroken_text))
+			
+		
+			if (not leftsingleton_case and not rightsingleton_case):
+				decision = self.compare_simple_split(line, single_segment, left_segment, right_segment)
+				if decision == 'alt':
+					self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+				# NOTE: if decision == 'current', make no changes
 
-			leftbreak  = line.breaks[breakindex-1]
-			rightbreak = line.breaks[breakindex+1]
+
+			else:		# special treatment for single characters
+				if leftsingleton_case:
+					precedingpiece   = line.pieces[coverbrkidx-2]
+					preceding_segment = self.fetch_plogged_segment_from_dictionary(precedingpiece)
+				if rightsingleton_case:
+					followingpiece   = line.pieces[coverbrkidx]
+					following_segment = self.fetch_plogged_segment_from_dictionary(followingpiece)
+			
+				if (leftsingleton_case and not rightsingleton_case):
+					leftmergedpiece = precedingpiece + leftpiece
+					if leftmergedpiece in self.segment_object_dictionary:
+						leftmerged_segment = self.fetch_plogged_segment_from_dictionary(leftmergedpiece)
+					else:
+						leftmerged_segment = self.new_segment_object(leftmergedpiece, 0)
+
+					decision = self.compare_leftsingleton_split(line, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
+
+					if decision == 'alt1':
+						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+					elif decision == 'alt2':
+						self.update_for_leftsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
+					# NOTE: if decision == 'current', make no changes
+
+
+				elif (rightsingleton_case and not leftsingleton_case):
+					rightmergedpiece = rightpiece + followingpiece
+					if rightmergedpiece in self.segment_object_dictionary:
+						rightmerged_segment = self.fetch_plogged_segment_from_dictionary(rightmergedpiece)
+					else:
+						rightmerged_segment = self.new_segment_object(rightmergedpiece, 0)
+
+					decision = self.compare_rightsingleton_split(line, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
+
+					if decision == 'alt1':
+						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+					elif decision == 'alt2':
+						self.update_for_rightsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
+					# NOTE: if decision == 'current', make no changes
+
+
+				elif (rightsingleton_case and leftsingleton_case):		# This case should really be "else:"
+					leftmergedpiece = precedingpiece + leftpiece
+					if leftmergedpiece in self.segment_object_dictionary:
+						leftmerged_segment = self.fetch_plogged_segment_from_dictionary(leftmergedpiece)
+					else:
+						leftmerged_segment = self.new_segment_object(leftmergedpiece, 0)
+						
+					rightmergedpiece = rightpiece + followingpiece
+					if rightmergedpiece in self.segment_object_dictionary:
+						rightmerged_segment = self.fetch_plogged_segment_from_dictionary(rightmergedpiece)
+					else:
+						rightmerged_segment = self.new_segment_object(rightmergedpiece, 0)
+						
+
+					decision = self.compare_bothsingletons_split(line, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
+
+					if decision == 'alt1':
+						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+					elif decision == 'alt2':
+						self.update_for_leftsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
+					elif decision == 'alt3':
+						self.update_for_rightsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
+					elif decision == 'alt4':
+						self.update_for_bothsingletons_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
+					# NOTE: if decision == 'current', make no changes
+
+				else:   # used when testing individual parts of preceding code; should not be reached in regular operation.
+					decision = self.compare_simple_split(line, single_segment, left_segment, right_segment)
+					if decision == 'alt':
+						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+		
+		
+		# MERGING:
+		elif attentionpoint == line.breaks[coverbrkidx]:						# here attentionpoint is the first character within its piece
+
+			leftbreak  = line.breaks[coverbrkidx-1]
+			rightbreak = line.breaks[coverbrkidx+1]
 
 			# local contribution as presently configured
-			leftpiece  = line.unbroken_text[leftbreak:point]				# leftpiece  == line.pieces[breakindex-1]
-			rightpiece = line.unbroken_text[point:rightbreak]				# rightpiece == line.pieces[breakindex]
+			leftpiece  = line.unbroken_text[leftbreak:attentionpoint]		# leftpiece  == line.pieces[coverbrkidx-1]
+			rightpiece = line.unbroken_text[attentionpoint:rightbreak]		# rightpiece == line.pieces[coverbrkidx]
 			
 			if leftpiece not in self.segment_object_dictionary:
 				print("Error in CompareAltParse: leftpiece (= ", leftpiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
@@ -535,7 +561,7 @@ class Document:	 #  <dx1 file>    <corpus>
 			right_segment = self.fetch_plogged_segment_from_dictionary(rightpiece)
 			current_contribution  = left_segment.get_instance_cost(self.totalsegmentcount) + right_segment.get_instance_cost(self.totalsegmentcount)
 
-			# alternative contribution 	
+			# alternate configuration 	
 			merged_piece = line.unbroken_text[leftbreak:rightbreak]
 			if merged_piece in self.segment_object_dictionary:
 				merged_segment = self.fetch_plogged_segment_from_dictionary(merged_piece)
@@ -546,23 +572,28 @@ class Document:	 #  <dx1 file>    <corpus>
 			# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
 
 			
-			# FOR SAMPLING, USE THESE LINES
-			selection = random.random()		# selects uniformly from [0.0,1.0)
-			normalized_alt_contribution = alt_contribution / (alt_contribution + current_contribution)
-			if normalized_alt_contribution < selection:
-			
 			# FOR DETERMINISTIC SELECTION, USE THIS LINE
 			#if alt_contribution < current_contribution:
+
+			# FOR SAMPLING, USE THESE LINES
+			normalizing_factor = 1.0 / (current_contribution + alt_contribution)
+			norm_compl_current = alt_contribution * normalizing_factor
+			norm_compl_alt     = current_contribution * normalizing_factor
+		
+			hypothesis_list = [('current', norm_compl_current),  ('alt', norm_compl_alt)]
+			selection = weighted_choice(hypothesis_list)
+			if selection == 'alt':			
+
 				# UPDATE THE PARSE
 				line.piecesorder_cost -= math.log(len(line.pieces), 2)
-				line.pieces[breakindex-1] = merged_piece				# i.e., replace leftpiece by merged_piece
-				line.pieces.pop(breakindex)
-				line.breaks.pop(breakindex)
+				line.pieces[coverbrkidx-1] = merged_piece				# i.e., replace leftpiece by merged_piece
+				line.pieces.pop(coverbrkidx)
+				line.breaks.pop(coverbrkidx)
 				
 				# UPDATE GLOBAL COUNTS
 				if merged_segment.count == 0:
-					self.merger_newsegment_count += 1
-				self.merger_count += 1
+					self.merge_newsegment_count += 1
+				self.merge_count += 1
 				self.totalsegmentcount -= 1
 				
 				# UPDATE DICTIONARY ENTRIES
@@ -584,11 +615,6 @@ class Document:	 #  <dx1 file>    <corpus>
 					if left_segment in self.true_segment_dictionary:		# additional info; no contribution to processing
 						self.deletedandtrue_devcount += 1
 						self.deletedandtrue_dictionary[left_segment] = self.true_segment_dictionary[left_segment]
-						print("Merge", file=outfile_del_analysis)
-						print("   Pieces:        merged =", merged_piece, "   left =", leftpiece, "   right =", rightpiece, file=outfile_del_analysis)
-						print("   Cost_contribs: current =", current_contribution, "   alt =", alt_contribution, file=outfile_del_analysis)
-						print("   Counts:        left =", left_segment.count, "   right =", right_segment.count, file=outfile_del_analysis)
-						print("   True count:    left =", self.true_segment_dictionary[leftpiece], file=outfile_del_analysis)
 				else:
 					left_segment.divide_charges_among_instances()
 					left_segment.plog = left_segment.get_plog(self.totalsegmentcount)
@@ -600,18 +626,376 @@ class Document:	 #  <dx1 file>    <corpus>
 					if right_segment in self.true_segment_dictionary:		# additional info; no contribution to processing
 						self.deletedandtrue_devcount += 1
 						self.deletedandtrue_dictionary[right_segment] = self.true_segment_dictionary[right_segment]
-						print("Merge", file=outfile_del_analysis)
-						print("   Piecess:       merged =", mergedpiece, "   left =", leftpiece, "   right =", rightpiece, file=outfile_del_analysis)
-						print("   Cost_contribs: current =", current_contribution, "   alt =", alt_contribution, file=outfile_del_analysis)
-						print("   Counts:        left =",  left_segment.count, "   right =", right_segment.count, file=outfile_del_analysis)
-						print("   True count:    right =", self.true_segment_dictionary[rightpiece], file=outfile_del_analysis)
 				else:
 					right_segment.divide_charges_among_instances()
 					right_segment.plog = right_segment.get_plog(self.totalsegmentcount)
+
+				
+	# ----------------------------------------------------------------------------- #
+	# FUNCTIONS FOR SAMPLING AMONG LOCAL CONFIGURATIONS WEIGHTED ACCORDING TO COST. #
+	# THESE FUNCTIONS APPLY TO DIFFERENT CASES. ALL BEGIN WITH THE WORD 'compare_'. #
+	# ----------------------------------------------------------------------------- #
+	def compare_simple_split(self, line, single_segment, left_segment, right_segment):
+
+		# local contribution to line cost as currently configured
+		current_contribution = single_segment.get_instance_cost(self.totalsegmentcount)
+
+		# alternate configuration
+		alt_contribution = left_segment.get_instance_cost(self.totalsegmentcount)		+  \
+							right_segment.get_instance_cost(self.totalsegmentcount)		+  \
+			                math.log(1 + len(line.pieces), 2)
+		# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
+			
+#		# FOR DETERMINISTIC SELECTION, USE THESE LINES 
+#		#if alt_contribution < current_contribution:	
+#			return 'alt'
+#		else
+#			return 'current'
+
+		# FOR SAMPLING, USE THESE LINES		
+		normalizing_factor = 1.0 / (current_contribution + alt_contribution)
+		norm_compl_current = alt_contribution * normalizing_factor
+		norm_compl_alt = current_contribution * normalizing_factor
+		
+		hypothesis_list = [('current', norm_compl_current),  ('alt', norm_compl_alt)]
+		selection = weighted_choice(hypothesis_list)
+		#print(selection)
+		
+		return selection
 				
 
+	def compare_leftsingleton_split(self, line, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment):
 
-	def lrparse_line(self, line, longest_dictionary_entry_length, outfile  ):				# from wordbreaker.py: ParseWord()   Needs different name.  outfile is for verbose (mostly --last part always prints).
+		# local contribution to line cost as currently configured
+		current_contribution = preceding_segment.get_instance_cost(self.totalsegmentcount) + \
+							single_segment.get_instance_cost(self.totalsegmentcount)
+
+		# alternate configuration
+		alt1_contribution = preceding_segment.get_instance_cost(self.totalsegmentcount) + \
+							left_segment.get_instance_cost(self.totalsegmentcount)		+ \
+							right_segment.get_instance_cost(self.totalsegmentcount)		+ \
+			                math.log(1 + len(line.pieces), 2)
+		# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
+		
+		# another alternate configuration
+		alt2_contribution = leftmerged_segment.get_instance_cost(self.totalsegmentcount) + \
+							right_segment.get_instance_cost(self.totalsegmentcount)
+
+
+		method = 'sampling'
+
+		# FOR DETERMINISTIC SELECTION, USE THESE LINES
+		if method == 'determinate':
+			min_contribution = min(current_contribution, alt1_contribution, alt2_contribution)	
+			if min_contribution == alt1_contribution:
+				return 'alt1'
+			elif min_contribution == alt2_contribution:
+				return 'alt2'
+			else:
+				return 'current'
+			
+		# FOR SAMPLING, USE THESE LINES
+		elif method == 'sampling':
+			normalizing_factor = 1.0 / (2 * (current_contribution + alt1_contribution + alt2_contribution))
+			norm_compl_current = (alt1_contribution + alt2_contribution) * normalizing_factor
+			norm_compl_alt1 = (current_contribution + alt2_contribution) * normalizing_factor
+			norm_compl_alt2 = (current_contribution + alt1_contribution) * normalizing_factor 
+		
+			hypothesis_list = [('current',norm_compl_current),  ('alt1',norm_compl_alt1),  ('alt2',norm_compl_alt2)]
+			selection = weighted_choice(hypothesis_list)
+		
+			#print()
+			#print("cost_current =", current_contribution, "  cost_alt1 =", alt1_contribution, "  cost_alt2 =", alt2_contribution)
+			#print("weight_current =", norm_compl_current, "  weight_alt1 =", norm_compl_alt1, "  weight_alt2 =", norm_compl_alt2)
+			#print()
+		
+			return selection
+		
+
+	def compare_rightsingleton_split(self, line, single_segment, left_segment, right_segment, following_segment, rightmerged_segment):
+
+		# local contribution to line cost as currently configured
+		current_contribution =  single_segment.get_instance_cost(self.totalsegmentcount) + \
+								following_segment.get_instance_cost(self.totalsegmentcount)
+
+		# alternate configuration
+		alt1_contribution = left_segment.get_instance_cost(self.totalsegmentcount)		+ \
+							right_segment.get_instance_cost(self.totalsegmentcount)		+ \
+							following_segment.get_instance_cost(self.totalsegmentcount) + \
+							math.log(1 + len(line.pieces), 2)
+							# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
+		
+		# another alternate configuration
+		alt2_contribution = left_segment.get_instance_cost(self.totalsegmentcount) + \
+							rightmerged_segment.get_instance_cost(self.totalsegmentcount)
+
+
+		method = 'sampling'
+							
+		# FOR DETERMINISTIC SELECTION, USE THESE LINES
+		if method == 'determinate':
+			min_contribution = min(current_contribution, alt1_contribution, alt2_contribution)	
+			if min_contribution == alt1_contribution:
+				return 'alt1'
+			elif min_contribution == alt2_contribution:
+				return 'alt2'
+			else:
+				return 'current'
+			
+		# FOR SAMPLING, USE THESE LINES
+		elif method == 'sampling':
+			normalizing_factor = 1.0 / (2 * (current_contribution + alt1_contribution + alt2_contribution))
+			norm_compl_current = (alt1_contribution + alt2_contribution) * normalizing_factor
+			norm_compl_alt1 = (current_contribution + alt2_contribution) * normalizing_factor
+			norm_compl_alt2 = (current_contribution + alt1_contribution) * normalizing_factor 
+		
+			hypothesis_list = [('current',norm_compl_current),  ('alt1',norm_compl_alt1),  ('alt2',norm_compl_alt2)]
+			selection = weighted_choice(hypothesis_list)
+		
+			#print()
+			#print("cost_current =", current_contribution, "  cost_alt1 =", alt1_contribution, "  cost_alt2 =", alt2_contribution)
+			#print("weight_current =", norm_compl_current, "  weight_alt1 =", norm_compl_alt1, "  weight_alt2 =", norm_compl_alt2)
+			#print()
+		
+			return selection
+
+
+	def compare_bothsingletons_split(self, line, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment):
+	
+		# local contribution to line cost as currently configured
+		current_contribution = preceding_segment.get_instance_cost(self.totalsegmentcount)	+ \
+							single_segment.get_instance_cost(self.totalsegmentcount)		+ \
+							following_segment.get_instance_cost(self.totalsegmentcount)
+
+		# four alternate configurations		
+		alt1_contribution = preceding_segment.get_instance_cost(self.totalsegmentcount) 	+ \
+							left_segment.get_instance_cost(self.totalsegmentcount)			+ \
+							right_segment.get_instance_cost(self.totalsegmentcount)			+ \
+							following_segment.get_instance_cost(self.totalsegmentcount)		+ \
+			                math.log(1 + len(line.pieces), 2)
+							# last addend is adjustment to the current value
+							# of  log(factorial( len(self.pieces) ))
+		
+		alt2_contribution = leftmerged_segment.get_instance_cost(self.totalsegmentcount)	+ \
+							right_segment.get_instance_cost(self.totalsegmentcount)			+ \
+							following_segment.get_instance_cost(self.totalsegmentcount)
+
+		alt3_contribution = preceding_segment.get_instance_cost(self.totalsegmentcount) 	+ \
+							left_segment.get_instance_cost(self.totalsegmentcount)			+ \
+							rightmerged_segment.get_instance_cost(self.totalsegmentcount)
+		
+		alt4_contribution = leftmerged_segment.get_instance_cost(self.totalsegmentcount)	+ \
+							rightmerged_segment.get_instance_cost(self.totalsegmentcount)	- \
+							math.log(len(line.pieces), 2)
+							# last addend is adjustment to the current value
+							# of  log(factorial( len(self.pieces) ))
+
+
+		method = 'sampling'
+
+#		# FOR DETERMINISTIC SELECTION, USE THESE LINES
+		if method == 'determinate':
+			min_contribution = min(current_contribution, alt1_contribution, alt2_contribution, alt3_contribution, alt4_contribution)	
+			if min_contribution == alt1_contribution:
+				return 'alt1'
+			elif min_contribution == alt2_contribution:
+				return 'alt2'
+			elif min_contribution == alt3_contribution:
+				return 'alt3'
+			elif min_contribution == alt4_contribution:
+				return 'alt4'
+			else:
+				return 'current'
+			
+		# FOR SAMPLING, USE THESE LINES
+		elif method == 'sampling':
+			sum = current_contribution + alt1_contribution + alt2_contribution + alt3_contribution + alt4_contribution
+			normalizing_factor = 1.0 / (4 * sum)
+
+			norm_compl_current = (sum - current_contribution) * normalizing_factor
+			norm_compl_alt1 = (sum - alt1_contribution) * normalizing_factor
+			norm_compl_alt2 = (sum - alt2_contribution) * normalizing_factor 
+			norm_compl_alt3 = (sum - alt3_contribution) * normalizing_factor
+			norm_compl_alt4 = (sum - alt4_contribution) * normalizing_factor 
+		
+			hypothesis_list = [ ('current',norm_compl_current),  
+								('alt1',norm_compl_alt1),  
+								('alt2',norm_compl_alt2),
+								('alt3',norm_compl_alt3),  
+								('alt4',norm_compl_alt4) ]
+
+			selection = weighted_choice(hypothesis_list)
+		
+			return selection
+
+
+
+	# ---------------------------------------------------------------------------- #
+	# FUNCTIONS FOR UPDATING RECORDS ACCORDING TO SELECTED PARSING MODIFICATIONS.  #
+	# THESE FUNCTIONS APPLY TO DIFFERENT CASES. ALL BEGIN WITH THE WORD 'update_'. #
+	# ---------------------------------------------------------------------------- #
+	def update_for_simple_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment): 			
+		singlepiece = single_segment.segment_text
+		leftpiece = left_segment.segment_text
+		rightpiece = right_segment.segment_text
+			
+		# UPDATE THE PARSE
+		line.piecesorder_cost += math.log(1 + len(line.pieces), 2)
+		line.pieces[coverbrkidx-1] = leftpiece				# i.e., replace singlepiece by leftpiece
+		line.breaks.insert(coverbrkidx, attentionpoint)		# or use addcut  
+		line.pieces.insert(coverbrkidx, rightpiece)
+				 
+		# UPDATE GLOBAL COUNTS
+		self.totalsegmentcount += 1
+		self.split_count += 1
+		if left_segment.count == 0 and right_segment.count == 0:
+			self.split_2newsegments_count += 1
+		elif left_segment.count == 0 or right_segment.count == 0:
+			self.split_1newsegment_count += 1
+				
+		# UPDATE DICTIONARY ENTRIES
+		self.decrement_records(single_segment)
+		self.increment_records(left_segment)
+		self.increment_records(right_segment)
+
+
+	def update_for_leftsingleton_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment):
+
+		singlepiece = single_segment.segment_text
+		leftpiece = left_segment.segment_text
+		rightpiece = right_segment.segment_text
+		precedingpiece = preceding_segment.segment_text
+		leftmergedpiece = leftmerged_segment.segment_text
+			
+		# UPDATE THE PARSE
+		line.pieces[coverbrkidx-2]  = leftmergedpiece		# i.e., replace precedingpiece by leftmergedpiece
+		line.pieces[coverbrkidx-1]  = rightpiece
+		line.breaks[coverbrkidx-1] += len(leftpiece)		# moves break from beginning of singlepiece over to beginning of rightpiece	[note len(leftpiece) == 1]		
+				 											# [note: this break should now be attentionpoint]
+		# UPDATE GLOBAL COUNTS
+		# Figure this situation as a split plus a merge.
+		# self.totalsegmentcount is unchanged
+		self.split_count += 1
+		self.merge_count += 1
+		if left_segment.count == 0 and right_segment.count == 0:
+			self.split_2newsegments_count += 1
+		elif left_segment.count == 0 or right_segment.count == 0:
+			self.split_1newsegment_count += 1
+		if leftmerged_segment.count == 0:
+			self.merge_newsegment_count += 1
+
+		# UPDATE DICTIONARY ENTRIES
+		self.decrement_records(single_segment)
+		self.decrement_records(preceding_segment)
+		self.increment_records(right_segment)
+		self.increment_records(leftmerged_segment)
+
+
+	def update_for_rightsingleton_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, following_segment, rightmerged_segment):
+
+		singlepiece = single_segment.segment_text
+		leftpiece = left_segment.segment_text
+		rightpiece = right_segment.segment_text
+		followingpiece = following_segment.segment_text
+		rightmergedpiece = rightmerged_segment.segment_text
+			
+		# UPDATE THE PARSE
+		line.pieces[coverbrkidx-1] = leftpiece			# i.e., replace singlepiece by leftpiece
+		line.pieces[coverbrkidx]   = rightmergedpiece
+		line.breaks[coverbrkidx]  -= len(rightpiece)	# moves break from beginning of followingpiece over to beginning of rightmergedpiece	[note len(rightpiece) == 1]		
+				 										# [note: this break should now be attentionpoint]		
+		# UPDATE GLOBAL COUNTS
+		# Figure this situation as a split plus a merge.
+		# self.totalsegmentcount is unchanged
+		self.split_count += 1
+		self.merge_count += 1
+		if left_segment.count == 0 and right_segment.count == 0:
+			self.split_2newsegments_count += 1
+		elif left_segment.count == 0 or right_segment.count == 0:
+			self.split_1newsegment_count += 1
+		if rightmerged_segment.count == 0:
+			self.merge_newsegment_count += 1
+
+		# UPDATE DICTIONARY ENTRIES
+		self.decrement_records(single_segment)
+		self.decrement_records(following_segment)
+		self.increment_records(left_segment)
+		self.increment_records(rightmerged_segment)
+
+
+	def update_for_bothsingletons_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, \
+						preceding_segment, following_segment, leftmerged_segment, rightmerged_segment):
+						
+		singlepiece = single_segment.segment_text
+		leftpiece = left_segment.segment_text
+		rightpiece = right_segment.segment_text
+		precedingpiece = preceding_segment.segment_text
+		followingpiece = following_segment.segment_text
+		leftmergedpiece = leftmerged_segment.segment_text
+		rightmergedpiece = rightmerged_segment.segment_text
+		
+		# UPDATE THE PARSE
+		line.piecesorder_cost -= math.log(len(line.pieces), 2)		
+		line.pieces.pop(coverbrkidx-1)							# removes singlepiece
+		line.pieces[coverbrkidx-2] = leftmergedpiece			# i.e., replace precedingpiece by leftmergedpiece		
+		line.pieces[coverbrkidx-1] = rightmergedpiece		
+
+		#the_break_to_remove = line.breaks[coverbrkidx]
+		#line.breaks.remove(the_break_to_remove)
+		line.breaks.pop(coverbrkidx)
+		line.breaks[coverbrkidx-1] += len(leftpiece)			# moves break from beginning of (former) singlepiece over to beginning of (former) rightpiece		
+				 												# [note: this break should now be attentionpoint]
+		# UPDATE GLOBAL COUNTS
+		# Figure this situation as one split and two merges
+		self.totalsegmentcount -= 1
+		self.split_count += 1
+		self.merge_count += 2
+		if left_segment.count == 0 and right_segment.count == 0:	# since leftpiece and rightpiece are both single characters,
+			self.split_2newsegments_count += 1						# it's highly unlikely that either would have count == 0
+		elif left_segment.count == 0 or right_segment.count == 0:
+			self.split_1newsegment_count += 1
+		if leftmerged_segment.count == 0:
+			self.merge_newsegment_count += 1
+		if rightmerged_segment.count == 0:
+			self.merge_newsegment_count += 1
+
+		# UPDATE DICTIONARY ENTRIES
+		self.decrement_records(single_segment)
+		self.decrement_records(preceding_segment)		
+		self.decrement_records(following_segment)
+		self.increment_records(leftmerged_segment)
+		self.increment_records(rightmerged_segment)
+
+
+##########################
+	def decrement_records(self, this_segment):
+		segtext = this_segment.segment_text
+		
+		this_segment.count -= 1
+		if this_segment.count == 0:
+			del self.segment_object_dictionary[segtext]
+			if segtext in self.true_segment_dictionary:		# additional info; no contribution to processing
+				self.deletedandtrue_devcount += 1
+				self.deletedandtrue_dictionary[segtext] = self.true_segment_dictionary[segtext]
+		else:
+			this_segment.divide_charges_among_instances()
+			this_segment.plog = this_segment.get_plog(self.totalsegmentcount)
+	
+	
+	def increment_records(self, this_segment):
+		segtext = this_segment.segment_text
+		
+		if segtext not in self.segment_object_dictionary:
+			self.segment_object_dictionary[segtext] = this_segment
+			if segtext in self.true_segment_dictionary:		# additional info; no contribution to processing
+				self.addedandtrue_devcount += 1
+				self.addedandtrue_dictionary[segtext] = self.true_segment_dictionary[segtext]
+		self.segment_object_dictionary[segtext].count += 1
+		self.segment_object_dictionary[segtext].divide_charges_among_instances()
+		self.segment_object_dictionary[segtext].plog = self.segment_object_dictionary[segtext].get_plog(self.totalsegmentcount)
+##########################
+
+	def lrparse_line(self, line, longest_dictionary_entry_length, outfile  ):	 	# from wordbreaker.py: ParseWord()   Needs different name.  outfile is for verbose (mostly --last part always prints).
          
         # <---- outerscan range----------------------------------------------------> #
         #              starting point----^                           ^---outerscan
@@ -898,10 +1282,10 @@ class Document:	 #  <dx1 file>    <corpus>
 
 		print( formatstring % (loopno,		
 				self.split_count,
-				self.merger_count,  
+				self.merge_count,  
 				self.split_1newsegment_count, 
 		        self.split_2newsegments_count,
-		        self.merger_newsegment_count,
+		        self.merge_newsegment_count,
 		        
 		        self.addedandtrue_devcount,
 		        self.deletedandtrue_devcount,
@@ -915,10 +1299,10 @@ class Document:	 #  <dx1 file>    <corpus>
 
 		print( formatstring % (loopno,		
 				self.split_count,
-				self.merger_count,  
+				self.merge_count,  
 				self.split_1newsegment_count, 
 		        self.split_2newsegments_count,
-		        self.merger_newsegment_count,
+		        self.merge_newsegment_count,
 		        
 		        self.addedandtrue_devcount,
 		        self.deletedandtrue_devcount,
@@ -964,6 +1348,19 @@ class Document:	 #  <dx1 file>    <corpus>
 ## ---------------------------------------------------------------------------------------##
 ##		End of class Document:
 ## ---------------------------------------------------------------------------------------#
+
+
+def weighted_choice(hypothesis_list):
+	samplepoint = random.random()
+	#print("In weighted_choice function, samplepoint =", samplepoint)
+	cum = 0.0
+	for (hyp, weight) in hypothesis_list:
+		cum += weight
+		#print("cum =", cum)
+		if samplepoint < cum:
+			#print("returning hyp:", hyp)
+			return hyp
+	return hyp
 
 
 def	save_state_to_file(loopno, pkl_outfile_name, document_object):
@@ -1065,10 +1462,6 @@ else:
 	outfile_addedandtrue   = open(outfilename_addedandtrue, mode='w')
 	outfile_deletedandtrue = open(outfilename_deletedandtrue, mode='w')
 	
-	#2016_02_27
-	outfilename_del_analysis = outfolder + "del_analysis.txt"
-	outfile_del_analysis     = open(outfilename_del_analysis, mode='w')
-	
 	
 if ResumeLoopno > 0:	
 #---------------------------------------------------------#
@@ -1103,6 +1496,7 @@ else:
 	print("Data file has", len(this_document.line_object_list), "lines,",  \
 	       len(this_document.true_segment_dictionary), "distinct words,",  \
 	       this_document.true_totalsegmentcount, "word occurrences.")
+	print()
 	
 
 	# THIS PART IS FOR READING FROM dx1 FILE	[not yet reworked for new class structure  2016_01_21]
@@ -1179,16 +1573,16 @@ else:
 
 for loopno in range (ResumeLoopno, NumberOfIterations):
 	this_document.split_count  = 0
-	this_document.merger_count = 0
+	this_document.merge_count = 0
 	this_document.split_1newsegment_count  = 0
 	this_document.split_2newsegments_count = 0
-	this_document.merger_newsegment_count  = 0
+	this_document.merge_newsegment_count  = 0
 	# 2016_02_25
 	this_document.addedandtrue_devcount = 0
 	this_document.deletedandtrue_devcount = 0
 
 	for line in this_document.line_object_list:
-		this_document.compare_alt_parse(line, outfile_del_analysis)
+		this_document.compare_alt_parse(line)
 
 	this_document.precision_recall()
 	this_document.output_stats(outfile_stats, loopno)
@@ -1239,7 +1633,6 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 
 # CLOSE OUTPUT FILES SO THAT INFORMATION DERIVED BY PROGRAM CAN BE VIEWED DURING INTERACTIVE QUERIES
 
-outfile_del_analysis.close()
 outfile_addedandtrue.close()
 outfile_deletedandtrue.close()
 outfile_lrparse.close()
