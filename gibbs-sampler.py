@@ -24,13 +24,13 @@ REBASE_PERIOD = 10		# number of iterations between calls to rebase()   # standar
 FLOAT_INF = float("inf")
 
 
-NumberOfIterations = 12          # 160	 # 200	 # 400	
+NumberOfIterations = 15          # 160	 # 200	 # 400	
 ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
 print("\nNumber of iterations =", NumberOfIterations)
 if ResumeLoopno > 0:
 	print("Resume processing starting at loopno =", ResumeLoopno)
 
-SaveState = True	# True
+SaveState = False		# True
 
 
 ## ---------------------------------------------------------------------------------------##
@@ -283,7 +283,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.totalsegmentcount   		= 0
 		self.merge_count         		= 0
 		self.split_count          		= 0
-		self.merge_newsegment_count	= 0				# these 3 added on Feb. 2, 2016
+		self.merge_newsegment_count		= 0				# these 3 added on Feb. 2, 2016
 		self.split_1newsegment_count	= 0
 		self.split_2newsegments_count	= 0
 		self.split_merge_history 		= []
@@ -306,17 +306,24 @@ class Document:	 #  <dx1 file>    <corpus>
 		
 		
 
-	def output_corpuslines_detail(self, outfile):
+	def output_corpuslines_detail(self, outfile, loopno):
+		print("----------------------------------------\nLoop number:", loopno, file=outfile)
+		print("----------------------------------------", file=outfile)
 		for line in self.line_object_list:
 			self.populate_line_displaylists(line)
 			line.display_detail(outfile)			# displays text followed by line cost, detailed by segment and component
 
-	def output_corpuslines_textonly(self, outfile):
+	def output_corpuslines_textonly(self, outfile, loopno):
+		print("----------------------------------------\nLoop number:", loopno, file=outfile)
+		print("----------------------------------------", file=outfile)
 		for line in self.line_object_list:
 			line.displaytextonly(outfile)			# displays only unbroken line and its parse
 			print("       cost: %7.3f\n" % line.total_cost, end=' ', file=outfile)	
 	
-	def output_gibbspieces(self, outfile):
+	def output_gibbspieces(self, outfile, loopno):
+		print("----------------------------------------\nLoop number:", loopno, file=outfile)
+		print("----------------------------------------", file=outfile)
+
 		# Additional information is stored in the segment_object_dictionary,
 		# but only count will be displayed on the outfile.
 		
@@ -330,28 +337,32 @@ class Document:	 #  <dx1 file>    <corpus>
 		print("\ntotalsegmentcount =", self.totalsegmentcount, file=outfile)	
 		print("\n=== Dictionary ===", file=outfile)
 		for n in range(len(countslist)):
-			print(n, countslist[n][0], countslist[n][1], file=outfile)
+			print("%6d" % n, "\t%5d" % countslist[n][1], "\t", countslist[n][0], file=outfile)
 		
-	def output_addedandtrue(self, outfile):
+	def output_addedandtrue(self, outfile, loopno):
+		print("----------------------------------------\nLoop number:", loopno, file=outfile)
+		print("----------------------------------------", file=outfile)
 		#countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetical
 		countslist = sorted(self.addedandtrue_dictionary.items(), key = lambda x:x[0])				#secondary sort is alphabetical (ascending)
 		countslist = sorted(countslist, key = lambda x:x[1], reverse=True)							#primary sort is by count (descending)
 
 		print("\n=== addedandtrue_dictionary ===", file=outfile)
 		for n in range(len(countslist)):
-			print(n, countslist[n][0], countslist[n][1], file=outfile)
+			print("%6d" % n, "\t%5d" % countslist[n][1], "\t", countslist[n][0], file=outfile)
 		
-	def output_deletedandtrue(self, outfile):
+	def output_deletedandtrue(self, outfile, loopno):
+		print("----------------------------------------\nLoop number:", loopno, file=outfile)
+		print("----------------------------------------", file=outfile)
 		#countslist = sorted(reduced_dictionary.items(), key = lambda x:(x[1],x[0]), reverse=True)	#primary sort key is count, secondary is alphabetical
-		countslist = sorted(self.deletedandtrue_dictionary.items(), key = lambda x:x[0])					#secondary sort is alphabetical (ascending)
+		countslist = sorted(self.deletedandtrue_dictionary.items(), key = lambda x:x[0])			#secondary sort is alphabetical (ascending)
 		countslist = sorted(countslist, key = lambda x:x[1], reverse=True)							#primary sort is by count (descending)
 
 		print("\n=== deletedandtrue_dictionary ===", file=outfile)
 		for n in range(len(countslist)):
-			print(n, countslist[n][0], countslist[n][1], file=outfile)
+			print("%6d" % n, "\t%5d" % countslist[n][1], "\t", countslist[n][0], file=outfile)
 		
 	
-	def fetch_plogged_segment_from_dictionary(self, piece):  
+	def fetch_plogged_segment_from_dictionary(self, piece):    # BETTER: return  (this_segment, plog)
 		this_segment = self.segment_object_dictionary[piece]
 		if this_segment.count == 0:
 			print("Error in fetch_plogged_segment_from_dictionary for piece ='", piece, "': if segment is in the dictionary, its count should not be 0")
@@ -412,28 +423,30 @@ class Document:	 #  <dx1 file>    <corpus>
 		# randrange changed in python3, so now program output doesn't match pre-python3 runs.
 		# Using random.random() as shown above DOES exactly reproduce pre-python3 results,
 		# except for spacing and ordering.
+		
 	
 		attentionpoint = random.randrange( 1, len(line.unbroken_text))	# selects a possible spot for a change, not before all text or after.
 																		# attentionpoint k refers to a current or potential break between text points k-1 and k.
 																		# Suppose len(line.unbroken_text) = 5
 																		# Text index runs from 0 through 4. Don't pick 0. Don't pick 5.
 																		# But OK to pick 4. That splits off the last character of the line.
-		coverbrkpt, coverbrkidx = line.break_cover(attentionpoint)
+		coverbrkpt, coverbrkindex = line.break_cover(attentionpoint)
 
 
 		# SPLITTING:
 		if attentionpoint < coverbrkpt:										# attentionpoint may be any character within its piece except the first
 		
-			leftbreak  = line.breaks[coverbrkidx-1]
-			rightbreak = line.breaks[coverbrkidx]       					# Note rightbreak == coverbrkpt
+			leftbreak  = line.breaks[coverbrkindex-1]
+			rightbreak = line.breaks[coverbrkindex]       					# Note rightbreak == coverbrkpt
 
 			# Consider a modification of current parse at the selected location
 
 			# current configuration
-			singlepiece = line.unbroken_text[leftbreak:rightbreak]			# Note singlepiece == line.pieces[coverbrkidx-1]
-			if singlepiece not in self.segment_object_dictionary:
-				print("Error in CompareAltParse: singlepiece (=", singlepiece, ") not found in dictionary at line ='", line.unbroken_text, "'.")
-				sys.exit()
+			singlepiece = line.unbroken_text[leftbreak:rightbreak]			# Note singlepiece == line.pieces[coverbrkindex-1]
+			assert(singlepiece in self.segment_object_dictionary)
+			#if singlepiece not in self.segment_object_dictionary:
+				#print("Error in CompareAltParse: singlepiece (=", singlepiece, ") not found in dictionary at line ='", line.unbroken_text, "'.")
+				#sys.exit()
 			single_segment = self.fetch_plogged_segment_from_dictionary(singlepiece)
 
 			
@@ -466,16 +479,16 @@ class Document:	 #  <dx1 file>    <corpus>
 			if (not leftsingleton_case and not rightsingleton_case):
 				decision = self.compare_simple_split(line, single_segment, left_segment, right_segment)
 				if decision == 'alt':
-					self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+					self.update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 				# NOTE: if decision == 'current', make no changes
 
 
 			else:		# special treatment for single characters
 				if leftsingleton_case:
-					precedingpiece   = line.pieces[coverbrkidx-2]
+					precedingpiece   = line.pieces[coverbrkindex-2]
 					preceding_segment = self.fetch_plogged_segment_from_dictionary(precedingpiece)
 				if rightsingleton_case:
-					followingpiece   = line.pieces[coverbrkidx]
+					followingpiece   = line.pieces[coverbrkindex]
 					following_segment = self.fetch_plogged_segment_from_dictionary(followingpiece)
 			
 				if (leftsingleton_case and not rightsingleton_case):
@@ -488,9 +501,9 @@ class Document:	 #  <dx1 file>    <corpus>
 					decision = self.compare_leftsingleton_split(line, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
 
 					if decision == 'alt1':
-						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 					elif decision == 'alt2':
-						self.update_for_leftsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
+						self.update_for_leftsingleton_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
 					# NOTE: if decision == 'current', make no changes
 
 
@@ -504,9 +517,9 @@ class Document:	 #  <dx1 file>    <corpus>
 					decision = self.compare_rightsingleton_split(line, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
 
 					if decision == 'alt1':
-						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 					elif decision == 'alt2':
-						self.update_for_rightsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
+						self.update_for_rightsingleton_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
 					# NOTE: if decision == 'current', make no changes
 
 
@@ -527,39 +540,41 @@ class Document:	 #  <dx1 file>    <corpus>
 					decision = self.compare_bothsingletons_split(line, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
 
 					if decision == 'alt1':
-						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 					elif decision == 'alt2':
-						self.update_for_leftsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
+						self.update_for_leftsingleton_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
 					elif decision == 'alt3':
-						self.update_for_rightsingleton_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
+						self.update_for_rightsingleton_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
 					elif decision == 'alt4':
-						self.update_for_bothsingletons_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
+						self.update_for_bothsingletons_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
 					# NOTE: if decision == 'current', make no changes
 
 				else:   # used when developing and testing individual parts of preceding code; should not be reached in regular operation.
 					decision = self.compare_simple_split(line, single_segment, left_segment, right_segment)
 					if decision == 'alt':
-						self.update_for_simple_split(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 		
 		
 		# MERGING:
-		elif attentionpoint == line.breaks[coverbrkidx]:						# here attentionpoint is the first character within its piece
+		elif attentionpoint == line.breaks[coverbrkindex]:						# here attentionpoint is the first character within its piece
 
-			leftbreak  = line.breaks[coverbrkidx-1]
-			rightbreak = line.breaks[coverbrkidx+1]
+			leftbreak  = line.breaks[coverbrkindex-1]
+			rightbreak = line.breaks[coverbrkindex+1]
 
 			# Consider a modification of current parse at the selected location
 
 			# current configuration
-			leftpiece  = line.unbroken_text[leftbreak:attentionpoint]		# leftpiece  == line.pieces[coverbrkidx-1]
-			rightpiece = line.unbroken_text[attentionpoint:rightbreak]		# rightpiece == line.pieces[coverbrkidx]
+			leftpiece  = line.unbroken_text[leftbreak:attentionpoint]		# leftpiece  == line.pieces[coverbrkindex-1]
+			rightpiece = line.unbroken_text[attentionpoint:rightbreak]		# rightpiece == line.pieces[coverbrkindex]
 			
-			if leftpiece not in self.segment_object_dictionary:
-				print("Error in CompareAltParse: leftpiece (= ", leftpiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
-				sys.exit()
-			if rightpiece not in self.segment_object_dictionary:
-				print("Error in CompareAltParse: rightpiece (= ", rightpiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
-				sys.exit()
+			#if leftpiece not in self.segment_object_dictionary:
+				#print("Error in CompareAltParse: leftpiece (= ", leftpiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
+				#sys.exit()
+			#if rightpiece not in self.segment_object_dictionary:
+				#print("Error in CompareAltParse: rightpiece (= ", rightpiece, ") not found in dictionary at line = '", line.unbroken_text, "'.")
+				#sys.exit()
+			assert(leftpiece in self.segment_object_dictionary)
+			assert(rightpiece in self.segment_object_dictionary)
 			left_segment  = self.fetch_plogged_segment_from_dictionary(leftpiece)
 			right_segment = self.fetch_plogged_segment_from_dictionary(rightpiece)
 
@@ -586,16 +601,16 @@ class Document:	 #  <dx1 file>    <corpus>
 			if (not leftsingleton_case and not rightsingleton_case):
 				decision = self.compare_simple_merge(line, single_segment, left_segment, right_segment)
 				if decision == 'alt':
-					self.update_for_simple_merge(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+					self.update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 				# NOTE: if decision == 'current', make no changes
 
 
 			else:		# special treatment for single characters
 				if leftsingleton_case:
-					precedingpiece   = line.pieces[coverbrkidx-2]
+					precedingpiece   = line.pieces[coverbrkindex-2]
 					preceding_segment = self.fetch_plogged_segment_from_dictionary(precedingpiece)
 				if rightsingleton_case:
-					followingpiece   = line.pieces[coverbrkidx+1]
+					followingpiece   = line.pieces[coverbrkindex+1]
 					following_segment = self.fetch_plogged_segment_from_dictionary(followingpiece)
 			
 				if (leftsingleton_case and not rightsingleton_case):
@@ -608,9 +623,9 @@ class Document:	 #  <dx1 file>    <corpus>
 					decision = self.compare_leftsingleton_merge(line, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment)
 
 					if decision == 'alt1':
-						self.update_for_simple_merge(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 					elif decision == 'alt2':
-						self.update_for_leftsingleton_merge(line, attentionpoint, coverbrkidx, left_segment, preceding_segment, leftmerged_segment)
+						self.update_for_leftsingleton_merge(line, attentionpoint, coverbrkindex, left_segment, preceding_segment, leftmerged_segment)
 					# NOTE: if decision == 'current', make no changes
 
 
@@ -624,9 +639,9 @@ class Document:	 #  <dx1 file>    <corpus>
 					decision = self.compare_rightsingleton_merge(line, single_segment, left_segment, right_segment, following_segment, rightmerged_segment)
 
 					if decision == 'alt1':
-						self.update_for_simple_merge(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 					elif decision == 'alt2':
-						self.update_for_rightsingleton_merge(line, attentionpoint, coverbrkidx, right_segment, following_segment, rightmerged_segment)
+						self.update_for_rightsingleton_merge(line, attentionpoint, coverbrkindex, right_segment, following_segment, rightmerged_segment)
 					# NOTE: if decision == 'current', make no changes
 
 
@@ -647,19 +662,19 @@ class Document:	 #  <dx1 file>    <corpus>
 					decision = self.compare_bothsingletons_merge(line, single_segment, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
 
 					if decision == 'alt1':
-						self.update_for_simple_merge(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 					elif decision == 'alt2':
-						self.update_for_leftsingleton_merge(line, attentionpoint, coverbrkidx, left_segment, preceding_segment, leftmerged_segment)
+						self.update_for_leftsingleton_merge(line, attentionpoint, coverbrkindex, left_segment, preceding_segment, leftmerged_segment)
 					elif decision == 'alt3':
-						self.update_for_rightsingleton_merge(line, attentionpoint, coverbrkidx, right_segment, following_segment, rightmerged_segment)
+						self.update_for_rightsingleton_merge(line, attentionpoint, coverbrkindex, right_segment, following_segment, rightmerged_segment)
 					elif decision == 'alt4':
-						self.update_for_bothsingletons_merge(line, attentionpoint, coverbrkidx, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
+						self.update_for_bothsingletons_merge(line, attentionpoint, coverbrkindex, left_segment, right_segment, preceding_segment, following_segment, leftmerged_segment, rightmerged_segment)
 					# NOTE: if decision == 'current', make no changes
 
 				else:   # used when developing and testing individual parts of preceding code; should not be reached in regular operation.
 					decision = self.compare_simple_merge(line, single_segment, left_segment, right_segment)
 					if decision == 'alt':
-						self.update_for_simple_merge(line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment)
+						self.update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 
 
 				
@@ -872,16 +887,16 @@ class Document:	 #  <dx1 file>    <corpus>
 	# FUNCTIONS FOR UPDATING RECORDS ACCORDING TO SELECTED PARSING MODIFICATIONS.  #
 	# THESE FUNCTIONS APPLY TO DIFFERENT CASES. ALL BEGIN WITH THE WORD 'update_'. #
 	# ---------------------------------------------------------------------------- #
-	def update_for_simple_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment): 			
+	def update_for_simple_split(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment): 			
 		singlepiece = single_segment.segment_text
 		leftpiece = left_segment.segment_text
 		rightpiece = right_segment.segment_text
 			
 		# UPDATE THE PARSE
 		line.piecesorder_cost += math.log(1 + len(line.pieces), 2)
-		line.pieces[coverbrkidx-1] = leftpiece				# i.e., replace singlepiece by leftpiece
-		line.breaks.insert(coverbrkidx, attentionpoint)		# or use addcut  
-		line.pieces.insert(coverbrkidx, rightpiece)
+		line.pieces[coverbrkindex-1] = leftpiece				# i.e., replace singlepiece by leftpiece
+		line.breaks.insert(coverbrkindex, attentionpoint)		# or use addcut  
+		line.pieces.insert(coverbrkindex, rightpiece)
 				 
 		# UPDATE GLOBAL COUNTS
 		self.totalsegmentcount += 1
@@ -897,7 +912,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.increment_records(right_segment)
 
 
-	def update_for_leftsingleton_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment):
+	def update_for_leftsingleton_split(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment):
 
 		singlepiece = single_segment.segment_text
 		leftpiece = left_segment.segment_text
@@ -906,9 +921,9 @@ class Document:	 #  <dx1 file>    <corpus>
 		leftmergedpiece = leftmerged_segment.segment_text
 			
 		# UPDATE THE PARSE
-		line.pieces[coverbrkidx-2]  = leftmergedpiece		# i.e., replace precedingpiece by leftmergedpiece
-		line.pieces[coverbrkidx-1]  = rightpiece
-		line.breaks[coverbrkidx-1] += len(leftpiece)		# moves break from beginning of singlepiece over to beginning of rightpiece	[note len(leftpiece) == 1]		
+		line.pieces[coverbrkindex-2]  = leftmergedpiece		# i.e., replace precedingpiece by leftmergedpiece
+		line.pieces[coverbrkindex-1]  = rightpiece
+		line.breaks[coverbrkindex-1] += len(leftpiece)		# moves break from beginning of singlepiece over to beginning of rightpiece	[note len(leftpiece) == 1]		
 				 											# [note: this break should now be attentionpoint]
 		# UPDATE GLOBAL COUNTS
 		# Figure this situation as a split plus a merge.
@@ -929,7 +944,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.increment_records(leftmerged_segment)
 
 
-	def update_for_rightsingleton_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, following_segment, rightmerged_segment):
+	def update_for_rightsingleton_split(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, following_segment, rightmerged_segment):
 
 		singlepiece = single_segment.segment_text
 		leftpiece = left_segment.segment_text
@@ -938,9 +953,9 @@ class Document:	 #  <dx1 file>    <corpus>
 		rightmergedpiece = rightmerged_segment.segment_text
 			
 		# UPDATE THE PARSE
-		line.pieces[coverbrkidx-1] = leftpiece			# i.e., replace singlepiece by leftpiece
-		line.pieces[coverbrkidx]   = rightmergedpiece
-		line.breaks[coverbrkidx]  -= len(rightpiece)	# moves break from beginning of followingpiece over to beginning of rightmergedpiece	[note len(rightpiece) == 1]		
+		line.pieces[coverbrkindex-1] = leftpiece			# i.e., replace singlepiece by leftpiece
+		line.pieces[coverbrkindex]   = rightmergedpiece
+		line.breaks[coverbrkindex]  -= len(rightpiece)	# moves break from beginning of followingpiece over to beginning of rightmergedpiece	[note len(rightpiece) == 1]		
 				 										# [note: this break should now be attentionpoint]		
 		# UPDATE GLOBAL COUNTS
 		# Figure this situation as a split plus a merge.
@@ -961,7 +976,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.increment_records(rightmerged_segment)
 
 
-	def update_for_bothsingletons_split(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment, \
+	def update_for_bothsingletons_split(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, \
 						preceding_segment, following_segment, leftmerged_segment, rightmerged_segment):
 						
 		singlepiece = single_segment.segment_text
@@ -974,14 +989,14 @@ class Document:	 #  <dx1 file>    <corpus>
 		
 		# UPDATE THE PARSE
 		line.piecesorder_cost -= math.log(len(line.pieces), 2)		
-		line.pieces.pop(coverbrkidx-1)							# removes singlepiece
-		line.pieces[coverbrkidx-2] = leftmergedpiece			# i.e., replace precedingpiece by leftmergedpiece		
-		line.pieces[coverbrkidx-1] = rightmergedpiece		
+		line.pieces.pop(coverbrkindex-1)							# removes singlepiece
+		line.pieces[coverbrkindex-2] = leftmergedpiece			# i.e., replace precedingpiece by leftmergedpiece		
+		line.pieces[coverbrkindex-1] = rightmergedpiece		
 
-		#the_break_to_remove = line.breaks[coverbrkidx]
+		#the_break_to_remove = line.breaks[coverbrkindex]
 		#line.breaks.remove(the_break_to_remove)
-		line.breaks.pop(coverbrkidx)
-		line.breaks[coverbrkidx-1] += len(leftpiece)			# moves break from beginning of (former) singlepiece over to beginning of (former) rightpiece		
+		line.breaks.pop(coverbrkindex)
+		line.breaks[coverbrkindex-1] += len(leftpiece)			# moves break from beginning of (former) singlepiece over to beginning of (former) rightpiece		
 				 												# [note: this break should now be attentionpoint]
 		# UPDATE GLOBAL COUNTS
 		# Figure this situation as one split and two merges
@@ -1223,16 +1238,16 @@ class Document:	 #  <dx1 file>    <corpus>
 	# FUNCTIONS FOR UPDATING RECORDS ACCORDING TO SELECTED PARSING MODIFICATIONS.  #
 	# THESE FUNCTIONS APPLY TO DIFFERENT CASES. ALL BEGIN WITH THE WORD 'update_'. #
 	# ---------------------------------------------------------------------------- #
-	def update_for_simple_merge(self, line, attentionpoint, coverbrkidx, single_segment, left_segment, right_segment): 			
+	def update_for_simple_merge(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment): 			
 		singlepiece = single_segment.segment_text
 		leftpiece = left_segment.segment_text
 		rightpiece = right_segment.segment_text
 			
 		# UPDATE THE PARSE
 		line.piecesorder_cost -= math.log(len(line.pieces), 2)
-		line.pieces[coverbrkidx-1] = singlepiece				# i.e., replace leftpiece by singlepiece
-		line.breaks.pop(coverbrkidx)
-		line.pieces.pop(coverbrkidx)
+		line.pieces[coverbrkindex-1] = singlepiece				# i.e., replace leftpiece by singlepiece
+		line.breaks.pop(coverbrkindex)
+		line.pieces.pop(coverbrkindex)
 				 
 		# UPDATE GLOBAL COUNTS
 		self.totalsegmentcount -= 1
@@ -1246,7 +1261,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.decrement_records(right_segment)
 
 
-	def update_for_leftsingleton_merge(self, line, attentionpoint, coverbrkidx, left_segment, preceding_segment, leftmerged_segment):
+	def update_for_leftsingleton_merge(self, line, attentionpoint, coverbrkindex, left_segment, preceding_segment, leftmerged_segment):
 	
 		leftpiece = left_segment.segment_text
 		precedingpiece = preceding_segment.segment_text
@@ -1254,9 +1269,9 @@ class Document:	 #  <dx1 file>    <corpus>
 			
 		# UPDATE THE PARSE
 		line.piecesorder_cost -= math.log(len(line.pieces), 2)
-		line.pieces[coverbrkidx-2]  = leftmergedpiece		# i.e., replace precedingpiece by leftmergedpiece
-		line.pieces.pop(coverbrkidx-1)
-		line.breaks.pop(coverbrkidx-1)
+		line.pieces[coverbrkindex-2]  = leftmergedpiece		# i.e., replace precedingpiece by leftmergedpiece
+		line.pieces.pop(coverbrkindex-1)
+		line.breaks.pop(coverbrkindex-1)
 
 		# UPDATE GLOBAL COUNTS
 		self.totalsegmentcount -= 1
@@ -1270,7 +1285,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.decrement_records(left_segment)
 
 
-	def update_for_rightsingleton_merge(self, line, attentionpoint, coverbrkidx, right_segment, following_segment, rightmerged_segment):
+	def update_for_rightsingleton_merge(self, line, attentionpoint, coverbrkindex, right_segment, following_segment, rightmerged_segment):
 
 		rightpiece = right_segment.segment_text
 		followingpiece = following_segment.segment_text
@@ -1278,9 +1293,9 @@ class Document:	 #  <dx1 file>    <corpus>
 			
 		# UPDATE THE PARSE
 		line.piecesorder_cost -= math.log(len(line.pieces), 2)
-		line.pieces[coverbrkidx] = rightmergedpiece			# i.e., replace rightpiece by rightmergedpiece
-		line.pieces.pop(coverbrkidx+1)  
-		line.breaks.pop(coverbrkidx+1)
+		line.pieces[coverbrkindex] = rightmergedpiece			# i.e., replace rightpiece by rightmergedpiece
+		line.pieces.pop(coverbrkindex+1)  
+		line.breaks.pop(coverbrkindex+1)
 
 		# UPDATE GLOBAL COUNTS
 		self.totalsegmentcount -= 1
@@ -1294,7 +1309,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.decrement_records(following_segment)
 
 
-	def update_for_bothsingletons_merge(self, line, attentionpoint, coverbrkidx, left_segment, right_segment, \
+	def update_for_bothsingletons_merge(self, line, attentionpoint, coverbrkindex, left_segment, right_segment, \
 						preceding_segment, following_segment, leftmerged_segment, rightmerged_segment):
 						
 		leftpiece = left_segment.segment_text
@@ -1306,12 +1321,12 @@ class Document:	 #  <dx1 file>    <corpus>
 		
 		# UPDATE THE PARSE
 		line.piecesorder_cost -= ( math.log(len(line.pieces), 2) + math.log(len(line.pieces)-1, 2) )
-		line.pieces.pop(coverbrkidx+1)							# removes followingpiece
-		line.pieces.pop(coverbrkidx)							# removes rightpiece
-		line.pieces[coverbrkidx-1] = rightmergedpiece			# i.e., replace leftpiece by rightmergedpiece		
-		line.pieces[coverbrkidx-2] = leftmergedpiece			# i.e., replace precedingpiece by leftmergedpiece		
-		line.breaks.pop(coverbrkidx+1)
-		line.breaks.pop(coverbrkidx-1)
+		line.pieces.pop(coverbrkindex+1)							# removes followingpiece
+		line.pieces.pop(coverbrkindex)							# removes rightpiece
+		line.pieces[coverbrkindex-1] = rightmergedpiece			# i.e., replace leftpiece by rightmergedpiece		
+		line.pieces[coverbrkindex-2] = leftmergedpiece			# i.e., replace precedingpiece by leftmergedpiece		
+		line.breaks.pop(coverbrkindex+1)
+		line.breaks.pop(coverbrkindex-1)
 
 		# UPDATE GLOBAL COUNTS
 		# Figure this situation as two merges
@@ -1735,7 +1750,7 @@ def	save_state_to_file(loopno, pkl_outfile_name, document_object):
 	print("#----------------------------------------\n# Loop number:", loopno, file=pkl_outfile)
 	print("#----------------------------------------", file=pkl_outfile)	
 	print("serializing...")
-	serialstr = jsonpickle.encode(document_object)
+	serialstr = jsonpickle.encode(document_object, keys=True)
 	print("printing serialization to file...")
 	print(serialstr, file=pkl_outfile)
 	
@@ -1752,7 +1767,7 @@ def load_state_from_file(pkl_infile_name):
 	filelines = pkl_infile.readlines()
 	serialstr = filelines[-1]
 	#print(serialstr[0:40])
-	document = jsonpickle.decode(serialstr)
+	document = jsonpickle.decode(serialstr, keys=True)
 
 	pkl_infile.close()
 	return document
@@ -1907,14 +1922,9 @@ else:
 			this_document.output_stats(outfile_stats, loopno, show_cost = True)
 	
 		if loopno == NumberOfIterations -1:
-			print("----------------------------------------\nLoop number:", loopno, file=outfile_corpuslines)
-			print("----------------------------------------", file=outfile_corpuslines)
-			#this_document.output_corpuslines_detail(outfile1)									# displays text and also total line cost, detailed by segment and cost component
-			this_document.output_corpuslines_textonly(outfile_corpuslines)						# "textonly" makes it easier to see diffs during development
-
-			print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
-			print("----------------------------------------", file=outfile_gibbspieces)			
-			this_document.output_gibbspieces(outfile_gibbspieces)
+			#this_document.output_corpuslines_detail(outfile1, loopno)									# displays text and also total line cost, detailed by segment and cost component
+			this_document.output_corpuslines_textonly(outfile_corpuslines, loopno)						# "textonly" makes it easier to see diffs during development
+			this_document.output_gibbspieces(outfile_gibbspieces, loopno)
 		
 			if SaveState == True:
 				this_document.random_state = random.getstate()							# saves state of random number generator
@@ -1963,24 +1973,13 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
 		this_document.output_stats(outfile_stats, loopno, show_cost = True)
 	
 	if loopno == NumberOfIterations -1:
-		print("----------------------------------------\nLoop number:", loopno, file=outfile_corpuslines)
-		print("----------------------------------------", file=outfile_corpuslines)
-		#this_document.output_corpuslines_detail(outfile1)									# displays text and also total line cost, detailed by segment and cost component
-		this_document.output_corpuslines_textonly(outfile_corpuslines)						# "textonly" makes it easier to see diffs during development
-
-		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
-		print("----------------------------------------", file=outfile_gibbspieces)			
-		this_document.output_gibbspieces(outfile_gibbspieces)
+		#this_document.output_corpuslines_detail(outfile1, loopno)									# displays text and also total line cost, detailed by segment and cost component
+		this_document.output_corpuslines_textonly(outfile_corpuslines, loopno)						# "textonly" makes it easier to see diffs during development
+		this_document.output_gibbspieces(outfile_gibbspieces, loopno)
 		
-		# 2016_02_25
-		
-		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
-		print("----------------------------------------", file=outfile_gibbspieces)			
-		this_document.output_addedandtrue(outfile_addedandtrue)
-		
-		print("----------------------------------------\nLoop number:", loopno, file=outfile_gibbspieces)
-		print("----------------------------------------", file=outfile_gibbspieces)			
-		this_document.output_deletedandtrue(outfile_deletedandtrue)
+		# 2016_02_25		
+		this_document.output_addedandtrue(outfile_addedandtrue, loopno)		
+		this_document.output_deletedandtrue(outfile_deletedandtrue, loopno)
 		
 		if SaveState == True:
 			this_document.random_state = random.getstate()							# saves state of random number generator
