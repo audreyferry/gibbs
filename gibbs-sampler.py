@@ -16,6 +16,8 @@ g_encoding = "asci"  # "utf8"
 
 # PARAMETERS   # probably want shorter segments initially (so BREAKPROB higher than 0.1)
 BitsPerLetter = 5
+ALPHA         = 2.0		# 2   100   30   .5   .1   5   3.5   .01   .0001   0
+MODEL_COEFF   = 1.0		#0.6    #1.0     #0.1
 BREAKPROB     = 0.3		#0.3		# 0.5  #0.4 #0.3  #0.2    # 0.1   # where does this probability come from? is it a statistic about languages in general/English?
 DEFAULTCOUNT  = 1		# 0.5  # Used in divide_charges_among_instances() and in get_plog()
 PLOGCOEFF     = 3 		# 3		# used in get_plog_charge()
@@ -24,25 +26,29 @@ REBASE_PERIOD = 10		# number of iterations between calls to rebase()   # standar
 FLOAT_INF = float("inf")
 
 
-NumberOfIterations = 15          # 160	 # 200	 # 400	
+NumberOfIterations = 40          # 160	 # 200	 # 400	
 ResumeLoopno = 0									# Note - may want to (set a flag and) give a file to load, then get the ResumeLoop from the file 
 print("\nNumber of iterations =", NumberOfIterations)
 if ResumeLoopno > 0:
 	print("Resume processing starting at loopno =", ResumeLoopno)
 
-SaveState = False		# True
+SaveState = True		# True
 
 
 ## ---------------------------------------------------------------------------------------##
 class Segment:   # think   <morpheme> for morphology,  <word-type> or dictionary entry for wordbreaking
 ## ---------------------------------------------------------------------------------------##
 	def __init__(self, segment_text):
-		self.segment_text          = segment_text
-		self.count                 = 0 
-		self.phonocost             = len(segment_text) * float(BitsPerLetter)
-		self.ordercost             = math.log (math.factorial(len(segment_text)), 2)
-		#<self.ordercost           = 0.0>		# <produces interesting results>
-		self.inclusioncost         = 1.0
+		self.segment_text			= segment_text
+		self.count					= 0 
+		self.backoffcount			= 0.0
+
+		self.phonocost				= len(segment_text) * float(BitsPerLetter)
+		self.ordercost				= math.log (math.factorial(len(segment_text)), 2)
+		#<self.ordercost			= 0.0>		# <produces interesting results>
+		self.inclusioncost			= 1.0
+		#self.sum_dictcosts			= self.phonocost + self.ordercost + self.inclusioncost			
+		#self.backoff_count			= ALPHA * pow(2, -self.sum_dictcosts)
 		self.phonocost_portion     = 0.0		# phonocost / count
 		self.ordercost_portion     = 0.0		# etc.
 		self.inclusioncost_portion = 0.0
@@ -83,6 +89,12 @@ class Segment:   # think   <morpheme> for morphology,  <word-type> or dictionary
 		
 	def get_instance_cost(self, totalsegmentcount):
 		return self.get_plog_charge(totalsegmentcount) + self.sum_dictcosts_portion
+		
+	def DP_compute_instance_cost(self, totalcounts_segplusbackoff):		# CONSIDER PASSING IN (totalsegmentcount + totalbackoffcount)
+		instance_prob = (self.count + self.backoffcount) / totalcounts_segplusbackoff
+		#print(self.segment_text, "   \tcount:", self.count, "   \tbackoffcount:", self.backoffcount, "   \tdenom:", totalcounts_segplusbackoff, "   \tprob =", instance_prob)
+		instance_cost = -math.log(.00001 + instance_prob, 2)
+		return instance_cost
 		
 
 ## ---------------------------------------------------------------------------------------##
@@ -296,6 +308,8 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.addedandtrue_devcount		= 0.0			# these 4 are for diagnosing DR (DictionaryRecall); added on Feb. 25, 2016
 		self.deletedandtrue_devcount	= 0.0
 		self.addedandtrue_dictionary	= {}			# key is piece; value is the count in the true_segment_dictionaryx
+		self.backoffLUT					= []			# the value at index k is a pseudo-count, derived from its model cost, for a segment of length k
+		self.totalbackoffcount          = 0.0
 		self.deletedandtrue_dictionary	= {}
 		self.overall_cost				= 0.0
 		self.other_statistics     		= 0.0			# What should be measured?
@@ -362,6 +376,20 @@ class Document:	 #  <dx1 file>    <corpus>
 			print("%6d" % n, "\t%5d" % countslist[n][1], "\t", countslist[n][0], file=outfile)
 		
 	
+	
+	def build_backoffLUT(self):
+		self.backoffLUT = list()
+		self.backoffLUT.append(0)	# so backoffLUT[0] = 0
+		for length in range(1, 100):			# backoff pseudo-count for a segment depends only on length of text; get the value when needed from this lookup table
+			phonocost = length * float(BitsPerLetter)
+			ordercost = math.log (math.factorial(length), 2)
+			inclusioncost = 1.0
+			adjustedsum = (phonocost + ordercost + inclusioncost) * MODEL_COEFF		
+			this_document.backoffLUT.append(ALPHA * pow(2, -adjustedsum))
+			#print(length, "\t", adjustedsum, "\t", this_document.backoffLUT[length])
+
+	
+	
 	def fetch_plogged_segment_from_dictionary(self, piece):    # BETTER: return  (this_segment, plog)
 		this_segment = self.segment_object_dictionary[piece]
 		if this_segment.count == 0:
@@ -380,6 +408,21 @@ class Document:	 #  <dx1 file>    <corpus>
 
 		
 	
+#	def DP_fetch_segment_from_dictionary(self, piece):    # BETTER: return  (this_segment, plog)
+#		this_segment = self.segment_object_dictionary[piece]
+#		if this_segment.count == 0:
+#			print("Error in fetch_plogged_segment_from_dictionary for piece ='", piece, "': if segment is in the dictionary, its count should not be 0")
+#			sys.exit()		
+#		this_segment.plog = math.log( self.totalsegmentcount / float(this_segment.count), 2 )
+#		return this_segment
+
+		
+	def DP_new_segment_object(self, piece):
+		this_segment = Segment(piece)
+		this_segment.backoffcount = self.backoffLUT[len(piece)]
+		return this_segment
+		
+	
 	def initial_segmentation(self):
 		dictionary = self.segment_object_dictionary
 		for ln in self.line_object_list:
@@ -393,9 +436,10 @@ class Document:	 #  <dx1 file>    <corpus>
 					start = n	
 					self.totalsegmentcount += 1				# ALERT - for any item in or about to go into the dictionary,
 					if not piece in dictionary:				# increment totalsegmentcount BEFORE populating its plog variable		  
-						dictionary[piece] = self.new_segment_object(piece, 1)
-					else:
-						dictionary[piece].count += 1
+						#dictionary[piece] = self.new_segment_object(piece, 1)
+						dictionary[piece] = self.DP_new_segment_object(piece)
+						self.totalbackoffcount += 1			# After DP, the ALERT will no longer be needed; then may move that line downward.
+					dictionary[piece].count += 1
 					
 			if start < len(ln.unbroken_text):      # should always be true...
 				piece = ln.unbroken_text[start:]
@@ -403,9 +447,10 @@ class Document:	 #  <dx1 file>    <corpus>
 				ln.breaks.append( len(ln.unbroken_text) )   # always put a break at the end
 				self.totalsegmentcount += 1
 				if not piece in dictionary:
-					dictionary[piece] = self.new_segment_object(piece, 1)
-				else:
-					dictionary[piece].count += 1
+					#dictionary[piece] = self.new_segment_object(piece, 1)
+					dictionary[piece] = self.DP_new_segment_object(piece)
+					self.totalbackoffcount += 1				# After DP, the ALERT will no longer be needed; then may move that line downward.
+				dictionary[piece].count += 1
 
 
 		# Now that forming of segments is complete, 
@@ -447,7 +492,7 @@ class Document:	 #  <dx1 file>    <corpus>
 			#if singlepiece not in self.segment_object_dictionary:
 				#print("Error in CompareAltParse: singlepiece (=", singlepiece, ") not found in dictionary at line ='", line.unbroken_text, "'.")
 				#sys.exit()
-			single_segment = self.fetch_plogged_segment_from_dictionary(singlepiece)
+			single_segment = self.fetch_plogged_segment_from_dictionary(singlepiece)	# self.segment_object_dictionary[singlepiece]
 
 			
 			# alternate configuration 	
@@ -455,14 +500,16 @@ class Document:	 #  <dx1 file>    <corpus>
 			rightpiece = line.unbroken_text[attentionpoint:rightbreak]
 			
 			if leftpiece in self.segment_object_dictionary:
-				left_segment  = self.fetch_plogged_segment_from_dictionary(leftpiece)
+				left_segment  = self.fetch_plogged_segment_from_dictionary(leftpiece)	# self.segment_object_dictionary[leftpiece]
 			else:
-				left_segment  = self.new_segment_object(leftpiece, 0)
+				#left_segment  = self.new_segment_object(leftpiece, 0)
+				left_segment  = self.DP_new_segment_object(leftpiece)
 			
 			if rightpiece in self.segment_object_dictionary:
-				right_segment  = self.fetch_plogged_segment_from_dictionary(rightpiece)
+				right_segment  = self.fetch_plogged_segment_from_dictionary(rightpiece)	# self.segment_object_dictionary[rightpiece]
 			else:
-				right_segment  = self.new_segment_object(rightpiece, 0)
+				#right_segment  = self.new_segment_object(rightpiece, 0)
+				right_segment  = self.DP_new_segment_object(rightpiece)
 			
 			
 			# In the standard case we consider singlepiece vs. (leftpiece and rightpiece).
@@ -477,13 +524,14 @@ class Document:	 #  <dx1 file>    <corpus>
 			
 		
 			if (not leftsingleton_case and not rightsingleton_case):
-				decision = self.compare_simple_split(line, single_segment, left_segment, right_segment)
+				decision = self.DP_compare_simple_split(line, single_segment, left_segment, right_segment)
 				if decision == 'alt':
-					self.update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
+					self.DP_update_for_simple_split(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 				# NOTE: if decision == 'current', make no changes
 
 
-			else:		# special treatment for single characters
+			#else:		# special treatment for single characters
+			elif False:
 				if leftsingleton_case:
 					precedingpiece   = line.pieces[coverbrkindex-2]
 					preceding_segment = self.fetch_plogged_segment_from_dictionary(precedingpiece)
@@ -575,16 +623,17 @@ class Document:	 #  <dx1 file>    <corpus>
 				#sys.exit()
 			assert(leftpiece in self.segment_object_dictionary)
 			assert(rightpiece in self.segment_object_dictionary)
-			left_segment  = self.fetch_plogged_segment_from_dictionary(leftpiece)
-			right_segment = self.fetch_plogged_segment_from_dictionary(rightpiece)
+			left_segment  = self.fetch_plogged_segment_from_dictionary(leftpiece)				# self.segment_object_dictionary[leftpiece]
+			right_segment = self.fetch_plogged_segment_from_dictionary(rightpiece)				# self.segment_object_dictionary[rightpiece]
 
 
 			# alternate configuration 	
 			singlepiece = line.unbroken_text[leftbreak:rightbreak]
 			if singlepiece in self.segment_object_dictionary:
-				single_segment = self.fetch_plogged_segment_from_dictionary(singlepiece)
+				single_segment = self.fetch_plogged_segment_from_dictionary(singlepiece)		# self.segment_object_dictionary[singlepiece]
 			else:
-				single_segment = self.new_segment_object(singlepiece, 0)
+				#single_segment = self.new_segment_object(singlepiece, 0)
+				single_segment = self.DP_new_segment_object(singlepiece)
 						
 
 			# In the standard case we consider (leftpiece and rightpiece) vs.singlepiece (that is, the merger of leftpiece and rightpiece). 
@@ -599,13 +648,14 @@ class Document:	 #  <dx1 file>    <corpus>
 			
 		
 			if (not leftsingleton_case and not rightsingleton_case):
-				decision = self.compare_simple_merge(line, single_segment, left_segment, right_segment)
+				decision = self.DP_compare_simple_merge(line, single_segment, left_segment, right_segment)
 				if decision == 'alt':
-					self.update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
+					self.DP_update_for_simple_merge(line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment)
 				# NOTE: if decision == 'current', make no changes
 
 
-			else:		# special treatment for single characters
+			#else:		# special treatment for single characters
+			elif False:
 				if leftsingleton_case:
 					precedingpiece   = line.pieces[coverbrkindex-2]
 					preceding_segment = self.fetch_plogged_segment_from_dictionary(precedingpiece)
@@ -696,6 +746,36 @@ class Document:	 #  <dx1 file>    <corpus>
 		# alternate configuration
 		alt_contribution = left_segment.get_instance_cost(self.totalsegmentcount)		+  \
 							right_segment.get_instance_cost(self.totalsegmentcount)		+  \
+			                math.log(1 + len(line.pieces), 2)
+		# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
+			
+#		# FOR DETERMINISTIC SELECTION, USE THESE LINES 
+#		#if alt_contribution < current_contribution:	
+#			return 'alt'
+#		else
+#			return 'current'
+
+		# FOR SAMPLING, USE THESE LINES		
+		normalizing_factor = 1.0 / (current_contribution + alt_contribution)
+		norm_compl_current = alt_contribution * normalizing_factor
+		norm_compl_alt = current_contribution * normalizing_factor
+		
+		hypothesis_list = [('current', norm_compl_current),  ('alt', norm_compl_alt)]
+		selection = weighted_choice(hypothesis_list)
+		#print(selection)
+		
+		return selection
+				
+
+	def DP_compare_simple_split(self, line, single_segment, left_segment, right_segment):
+		totalcounts_segplusbackoff = self.totalsegmentcount + self.totalbackoffcount
+
+		# local contribution to line probability as currently configured
+		current_contribution = single_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)
+
+		# alternate configuration
+		alt_contribution = left_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)		+  \
+							right_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)		+  \
 			                math.log(1 + len(line.pieces), 2)
 		# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
 			
@@ -912,6 +992,31 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.increment_records(right_segment)
 
 
+	def DP_update_for_simple_split(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment): 			
+		singlepiece = single_segment.segment_text
+		leftpiece = left_segment.segment_text
+		rightpiece = right_segment.segment_text
+			
+		# UPDATE THE PARSE
+		line.piecesorder_cost += math.log(1 + len(line.pieces), 2)
+		line.pieces[coverbrkindex-1] = leftpiece				# i.e., replace singlepiece by leftpiece
+		line.breaks.insert(coverbrkindex, attentionpoint)		# or use addcut  
+		line.pieces.insert(coverbrkindex, rightpiece)
+				 
+		# UPDATE DICTIONARY ENTRIES
+		self.decrement_records(single_segment)
+		self.increment_records(left_segment)
+		self.increment_records(right_segment)
+
+		# UPDATE ANALYSIS DATA
+		#self.totalsegmentcount += 1
+		self.split_count += 1
+		if left_segment.count == 1 and right_segment.count == 1:
+			self.split_2newsegments_count += 1
+		elif left_segment.count == 1 or right_segment.count == 1:
+			self.split_1newsegment_count += 1
+				
+
 	def update_for_leftsingleton_split(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment, preceding_segment, leftmerged_segment):
 
 		singlepiece = single_segment.segment_text
@@ -1036,6 +1141,36 @@ class Document:	 #  <dx1 file>    <corpus>
 			
 		# alternate configuration
 		alt_contribution = single_segment.get_instance_cost(self.totalsegmentcount)	 	-  \
+							math.log(len(line.pieces), 2)
+		# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
+
+#		# FOR DETERMINISTIC SELECTION, USE THESE LINES 
+#		#if alt_contribution < current_contribution:	
+#			return 'alt'
+#		else
+#			return 'current'
+
+		# FOR SAMPLING, USE THESE LINES		
+		normalizing_factor = 1.0 / (current_contribution + alt_contribution)
+		norm_compl_current = alt_contribution * normalizing_factor
+		norm_compl_alt = current_contribution * normalizing_factor
+		
+		hypothesis_list = [('current', norm_compl_current),  ('alt', norm_compl_alt)]
+		selection = weighted_choice(hypothesis_list)
+		#print(selection)
+		
+		return selection
+				
+
+	def DP_compare_simple_merge(self, line, single_segment, left_segment, right_segment):
+		totalcounts_segplusbackoff = self.totalsegmentcount + self.totalbackoffcount
+
+		# local contribution to line cost as currently configured
+		current_contribution = left_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)	+  \
+							right_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)
+			
+		# alternate configuration
+		alt_contribution = single_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)	 	-  \
 							math.log(len(line.pieces), 2)
 		# last addend is adjustment to present value of log(factorial( len(self.pieces) ))
 
@@ -1261,6 +1396,29 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.decrement_records(right_segment)
 
 
+	def DP_update_for_simple_merge(self, line, attentionpoint, coverbrkindex, single_segment, left_segment, right_segment): 			
+		singlepiece = single_segment.segment_text
+		leftpiece = left_segment.segment_text
+		rightpiece = right_segment.segment_text
+			
+		# UPDATE THE PARSE
+		line.piecesorder_cost -= math.log(len(line.pieces), 2)
+		line.pieces[coverbrkindex-1] = singlepiece				# i.e., replace leftpiece by singlepiece
+		line.breaks.pop(coverbrkindex)
+		line.pieces.pop(coverbrkindex)
+				
+		# UPDATE DICTIONARY ENTRIES
+		self.increment_records(single_segment)
+		self.decrement_records(left_segment)
+		self.decrement_records(right_segment)
+				 
+		# UPDATE ANALYSIS DATA
+		#self.totalsegmentcount -= 1
+		self.merge_count += 1
+		if single_segment.count == 1:
+			self.merge_newsegment_count += 1
+
+
 	def update_for_leftsingleton_merge(self, line, attentionpoint, coverbrkindex, left_segment, preceding_segment, leftmerged_segment):
 	
 		leftpiece = left_segment.segment_text
@@ -1372,10 +1530,42 @@ class Document:	 #  <dx1 file>    <corpus>
 		self.segment_object_dictionary[segtext].count += 1
 		self.segment_object_dictionary[segtext].divide_charges_among_instances()
 		self.segment_object_dictionary[segtext].plog = self.segment_object_dictionary[segtext].get_plog(self.totalsegmentcount)
+
+
+
+	def DP_decrement_records(self, this_segment):
+		segtext = this_segment.segment_text
+		
+		this_segment.count -= 1
+		self.totalsegmentcount -= 1
+		if this_segment.count == 0:
+			self.totalbackoffcount -= this_segment.backoffcount
+			del self.segment_object_dictionary[segtext]
+			if segtext in self.true_segment_dictionary:		# additional info; no contribution to processing
+				self.deletedandtrue_devcount += 1
+				self.deletedandtrue_dictionary[segtext] = self.true_segment_dictionary[segtext]
+		else:
+			this_segment.divide_charges_among_instances()
+			this_segment.plog = this_segment.get_plog(self.totalsegmentcount)
+	
+	
+	def DP_increment_records(self, this_segment):
+		segtext = this_segment.segment_text
+		
+		if segtext not in self.segment_object_dictionary:
+			self.segment_object_dictionary[segtext] = this_segment
+			self.totalbackoffcount += this_segment.backoffcount
+			if segtext in self.true_segment_dictionary:		# additional info; no contribution to processing
+				self.addedandtrue_devcount += 1
+				self.addedandtrue_dictionary[segtext] = self.true_segment_dictionary[segtext]
+		self.segment_object_dictionary[segtext].count += 1
+		self.totalsegmentcount += 1
+		self.segment_object_dictionary[segtext].divide_charges_among_instances()
+		self.segment_object_dictionary[segtext].plog = self.segment_object_dictionary[segtext].get_plog(self.totalsegmentcount)
 ##########################
 
-	def lrparse_line(self, line, longest_dictionary_entry_length, outfile  ):	 	# from wordbreaker.py: ParseWord()   Needs different name.  outfile is for verbose (mostly --last part always prints).
-         
+	def lrparse_line(self, line, longest_dictionary_entry_length, totalcounts_segplusbackoff, outfile  ):	 	# from wordbreaker.py: ParseWord()   Needs different name.  outfile is for verbose (mostly --last part always prints).
+																												# Consider whether totalcounts_segplusbackoff is right thing to use.
         # <---- outerscan range----------------------------------------------------> #
         #              starting point----^                           ^---outerscan
         #                                <--------chunkstart range-->
@@ -1406,6 +1596,7 @@ class Document:	 #  <dx1 file>    <corpus>
 
 			# CONSIDER CHUNK TO EXTEND A SHORTER PREVIOUSLY-OBTAINED PARSE UP TO CURRENT VALUE OF outerscan.
 			# CHECK ALL POSSIBLE CHUNK START POINTS. KEEP TRACK TO FIND THE PARSE WITH LOWEST COST.
+			# Inits:
 			startingpoint = max(0, outerscan - longest_dictionary_entry_length)
 			howmanyspaces = -1					# This variable is for formatting. 
 			chosen_cost = FLOAT_INF				# MUST BE SURE TOTAL_COST IS POPULATED  OOPS - use FLOAT_INF instead
@@ -1431,8 +1622,9 @@ class Document:	 #  <dx1 file>    <corpus>
 					if verboseflag:	print("  %s"% chunk, end=" ", file=outfile)
 					
 					if verboseflag: print("   %5s" % "Yes.", end=" ", file=outfile)
-					chunk_segment = self.fetch_plogged_segment_from_dictionary(chunk)
-					chunk_cost = chunk_segment.get_instance_cost(self.totalsegmentcount)
+					chunk_segment = self.fetch_plogged_segment_from_dictionary(chunk)		# For DP:  self.segment_object_dictionary[chunk]
+					#chunk_cost = chunk_segment.get_instance_cost(self.totalsegmentcount)
+					chunk_cost = chunk_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)
 				
 					testcost = bestcost2here[chunkstart] + chunk_cost + \
 							   math.log( 1 + len(parse2here[chunkstart]), 2 )
@@ -1490,6 +1682,24 @@ class Document:	 #  <dx1 file>    <corpus>
 
 
 
+	def DP_compute_brokenline_cost(self, line):	
+		totalcounts_segplusbackoff = self.totalsegmentcount + self.totalbackoffcount
+
+		line.total_cost = 0.0							# should already be set by __init__
+		for piece in line.pieces:
+			if piece in self.segment_object_dictionary:
+				this_segment = self.fetch_plogged_segment_from_dictionary(piece)	# self.segment_object_dictionary[piece]
+			else:
+				this_segment = self.DP_new_segment_object(piece)
+				
+			piece_cost = this_segment.DP_compute_instance_cost(totalcounts_segplusbackoff)
+			line.total_cost += piece_cost
+
+		line.piecesorder_cost =  math.log (math.factorial(len(line.pieces)), 2)
+		line.total_cost += line.piecesorder_cost
+
+
+
 	def populate_line_displaylists(self, line):	
 		self.count_list					= []		# List of segment counts, in proper order.
 		self.phonocost_portion_list 	= []		# List per segment of phonocost_portion, in proper order. Similarly for other list variables.
@@ -1526,6 +1736,7 @@ class Document:	 #  <dx1 file>    <corpus>
 		print("longest_entry_length =", longest, file=verbose_outfile)
 		
 		print("parsing...")
+		totalcounts_segplusbackoff = self.totalsegmentcount + self.totalbackoffcount		# For DP: SHOULD THIS BE FIXED QUANTITY OR NOT?
 		for ln in self.line_object_list:
 			(parsed_line, bitcost) = self.lrparse_line(ln, longest, verbose_outfile)
 			ln.pieces = list(parsed_line)		# copy
@@ -1562,6 +1773,61 @@ class Document:	 #  <dx1 file>    <corpus>
 			for piece in ln.pieces:
 				assert(piece in self.segment_object_dictionary)		# there should be no "new" pieces
 			self.compute_brokenline_cost(ln)
+			self.overall_cost += ln.total_cost
+
+
+
+	def DP_rebase(self, verbose_outfile):
+		
+		# REPARSE
+		longest = 0
+		for piece in self.segment_object_dictionary:
+			if len(piece) > longest:
+				longest = len(piece)
+		print("longest_entry_length =", longest)
+		print("longest_entry_length =", longest, file=verbose_outfile)
+		
+		print("parsing...")
+		totalcounts_segplusbackoff = self.totalsegmentcount + self.totalbackoffcount		# For DP: SHOULD THIS BE FIXED QUANTITY OR NOT?
+		for ln in self.line_object_list:
+			(parsed_line, bitcost) = self.lrparse_line(ln, longest, totalcounts_segplusbackoff, verbose_outfile)
+			ln.pieces = list(parsed_line)		# copy
+			ln.populate_breaks_from_pieces()
+			#ln.total_cost = bitcost  [stored for comparison in RECOMPUTE section]
+			
+
+		# RECOUNT SEGMENTS
+		# rebuild the dictionary   IS THERE ANYTHING ELSE THAT NEEDS TO BE REINITED ????
+		print("updating segment counts in the dictionary...")
+		newdictionary = {}
+		self.totalsegmentcount = 0
+		self.totalbackoffcount = 0.0
+				
+		for ln in self.line_object_list:
+			for piece in ln.pieces:
+				#self.totalsegmentcount += 1			# ALERT - for any item in or about to go into the dictionary,
+				if not piece in newdictionary:			# increment totalsegmentcount BEFORE populating its plog variable		  
+					#newdictionary[piece] = self.new_segment_object(piece, 1)
+					newdictionary[piece] = self.DP_new_segment_object(piece)
+					self.totalbackoffcount += newdictionary[piece].backoffcount
+				newdictionary[piece].count += 1
+				self.totalsegmentcount += 1
+		
+		# fill in the information that depends on the count	 
+		for sgmt in newdictionary.values():
+			sgmt.divide_charges_among_instances()
+			sgmt.get_plog(self.totalsegmentcount)
+			
+		self.segment_object_dictionary = copy.deepcopy(newdictionary)	
+
+
+		# RECOMPUTE
+		print("computing line costs...")
+		self.overall_cost = 0.0
+		for ln in self.line_object_list:
+			for piece in ln.pieces:
+				assert(piece in self.segment_object_dictionary)		# there should be no "new" pieces
+			self.DP_compute_brokenline_cost(ln)
 			self.overall_cost += ln.total_cost
 
 
@@ -1857,6 +2123,8 @@ else:
 	this_document = Document()	
 	random.seed(a=5)    # audrey  2015_12_09  #Note that integer seed is not affected by seed change in python3
 
+	this_document.build_backoffLUT()
+
 
 	# THIS PART IS FOR CORPUS INPUT
 	truelines_list = infile.readlines()
@@ -1965,10 +2233,10 @@ for loopno in range (ResumeLoopno, NumberOfIterations):
  			# computes cost for entire line using information recorded in line and segment objects; does not change parse.
 			for piece in line.pieces:
 				assert(piece in this_document.segment_object_dictionary)			# there should be no "new" pieces
-			this_document.compute_brokenline_cost(line)								# at this loopno, needed only for display on lrparse.txt, not for processing  		
+			this_document.DP_compute_brokenline_cost(line)								# at this loopno, needed only for display on lrparse.txt, not for processing  		
 
 	if ((loopno+1) % REBASE_PERIOD == 0):
-		this_document.rebase(outfile_lrparse)		# reparse, recount, recompute	
+		this_document.DP_rebase(outfile_lrparse)		# reparse, recount, recompute	
 		this_document.precision_recall()
 		this_document.output_stats(outfile_stats, loopno, show_cost = True)
 	
